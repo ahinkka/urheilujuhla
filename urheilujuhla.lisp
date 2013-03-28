@@ -194,7 +194,11 @@
 	 (stropt :long-name "irc-port")
 	 (stropt :long-name "irc-nick")
 	 (stropt :long-name "irc-username")
-	 (stropt :long-name "irc-realname")))
+	 (stropt :long-name "irc-realname"))
+  (group (:header "SWANK settings:")
+	 (flag :long-name "enable-swank"
+	       :description "Enable SWANK (for development)")
+	 (stropt :long-name "swank-port")))
 
 (defun main ()
   (com.dvlsoft.clon:make-context)
@@ -223,15 +227,26 @@
       (com.dvlsoft.clon:help)
       (com.dvlsoft.clon:exit))
 
+    (if (com.dvlsoft.clon:getopt :long-name "enable-swank")
+	(progn
+	  (format *error-output* ";; Enabling SWANK...~%")
+	  (let ((port 14005)
+		(port-string (com.dvlsoft.clon:getopt :long-name "swank-port")))
+	    (when port-string
+	      (setf port (parse-integer port-string)))
 
-    (setf *irc-thread* (start-irc-thread irc-host (parse-integer irc-port) irc-nick irc-username irc-realname))
+	    (format *error-output* "Starting SWANK on port ~A~%" port)
+	    (swank:create-server :port port :dont-close t)))
+	(format *error-output* ";; Not starting SWANK.~%"))
+    (force-output *error-output*)
+
+    (setf *irc-thread*
+	  (start-irc-thread irc-host
+			    (parse-integer irc-port)
+			    irc-nick irc-username irc-realname))
     ;; (setf *testing-thread* (start-testing-thread))
     (setf *processing-thread* (start-processing-thread))
 
-    (swank:create-server :port 14005
-			 ;; if non-nil the connection won't be closed
-			 ;; after connecting
-			 :dont-close nil)
 
     (format t "Running...~%")
     (let ((uptime 0))
