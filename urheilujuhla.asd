@@ -7,6 +7,7 @@
 	       #:cl-irc
 
 	       #:com.dvlsoft.clon
+	       #:swank
 
 	       #:fmi-observations
 	       #:local-time)
