@@ -9,10 +9,14 @@
 (in-package :urheilujuhla)
 
 (defvar *irc-thread*)
+(defvar *irc-sender-thread*)
 (defvar *object-system-thread*)
 (defvar *processing-thread*)
 
 (defvar *irc-connection*)
+(defvar *irc-channels*)
+(defvar *irc-sender-should-stop* nil)
+(defvar *irc-react-to-handles* nil)
 
 (defvar *queue-lock* (bt:make-lock "queue-lock"))
 (defvar *queues-updated* (bt:make-condition-variable :name "queues-updated"))
@@ -29,26 +33,54 @@
     (push message *from-irc*)
     (bt:condition-notify *queues-updated*)))
 
-(defun run-irc-thread (host port nick username realname)
+(defun connect-to-irc-server (host port nick username realname)
   (setf *irc-connection* (irc:connect :server host :port port :nickname nick
 				      :username username :realname realname))
+  (when *irc-connection*
+    (remove-hooks *irc-connection* 'irc-privmsg-message))
+  
   (add-hook *irc-connection* 'irc-privmsg-message #'handle-irc-privmsg)
+
+  (dolist (channel *irc-channels*)
+    (format *error-output* ";; Joining channel ~A~%" channel)
+    (force-output *error-output*)
+    (irc:join *irc-connection* channel))
+
+  (setf *irc-sender-thread* (start-irc-sender-thread))
+
   (irc:read-message-loop *irc-connection*))
+
+(defun run-irc-thread (host port nick username realname)
+  (loop do
+       (handler-case
+	   (connect-to-irc-server host port nick username realname)
+	 (usocket:socket-error (err)
+	   (format *error-output* ";; Connection failed due to network issue: ~A~%" err)))
+
+       (setf *irc-sender-should-stop* t)
+
+       (format *error-output* ";; Thread ~A sleeping for 30 seconds...~%"
+	       (bt:thread-name (bt:current-thread)))
+       (force-output *error-output*)
+       (sleep 30)))
 
 (defun start-irc-thread (host port nick username realname)
   (bt:make-thread #'(lambda () (run-irc-thread host port nick username realname))
 		  :name "irc-thread"))
 
-
 (defun run-irc-sender-thread ()
-  (irc:join *irc-connection* "!biomine")
-
   (loop do
+       (when *irc-sender-should-stop*
+	 (format *error-output* ";; IRC sender thread stopping~%")
+	 (setf *irc-sender-should-stop* nil)
+	 (return-from run-irc-sender-thread))
+
        (bt:with-lock-held (*queue-lock*)
 	 (when (> (length *to-irc*) 0)
 	   (let ((popped (pop *to-irc*)))
-	     (format t "IRC << ~A~%" (pop *to-irc*)))))
-	     ;;(apply #'irc:privmsg (list *irc-connection* (first popped) (second popped)) ; (channel message)
+	     (when (and (first popped) (second popped))
+	       (format t "IRC << ~A~%" popped)
+	       (apply #'irc:privmsg (list *irc-connection* (first popped) (second popped)))))))
        (sleep 1)))
 
 
@@ -168,7 +200,11 @@
        ;; (format t "Begin processing queues...~%")
 
        (loop while (> (length *from-irc*) 0) do
-	    (format t "IRC >> ~A~%" (pop *from-irc*)))
+	    (let ((msg (pop *from-irc*)))
+	      (bt:make-thread #'(lambda ()
+				  (handle-irc-message msg)))))
+
+
 
        (loop while (> (length *from-object-system*) 0) do
 	    (format t "OBJECT-SYSTEM> ~A~%" (pop *from-object-system*)))
@@ -179,6 +215,42 @@
 
 (defun start-processing-thread ()
   (bt:make-thread #'run-processing-thread :name "processing-thread"))
+
+(defun formatted-weather (place-name)
+  (if (not place-name)
+      "?¡"
+      (multiple-value-bind (region location observations)
+	  (fmi-observations:get-weather place-name)
+	(if (not region)
+	    (format nil "Paikkaa ~A ei löydy!" place-name)
+	    (format nil "~A, ~A: ~A @ ~A" region location
+		    (cadar (last observations))
+		    (caar (last observations)))))))
+      
+
+(defun handle-irc-message (message)
+  (with-slots (source arguments) message
+    (let* ((from-channel (if (cl-ppcre:all-matches "^[#\!].*$" (first arguments)) 
+			    (first arguments) nil))
+	   (from-person (if (cl-ppcre:all-matches "^[^#^\!].*$" (first arguments))
+			    (first arguments) nil))
+	   (message-proper (second arguments))
+	   (first-word (string-trim ",:;"
+				    (first
+				     (cl-ppcre:split " "
+						     (string-trim " " message-proper)))))
+	   (rest-words (first (rest (cl-ppcre:split " " message-proper :limit 2)))))
+      (declare (ignore from-channel from-person))
+
+      (when (member first-word *irc-react-to-handles* :test #'string-equal)
+	(bt:with-lock-held (*queue-lock*)
+	  (if from-person
+	      (push (list source
+			  (formatted-weather rest-words)) *to-irc*)
+	      (push (list from-channel
+			  (format nil "~A, ~A"
+				  source (formatted-weather rest-words)))
+			  *to-irc*)))))))
 
 
 ;;;
@@ -194,9 +266,10 @@
 	 (stropt :long-name "irc-port")
 	 (stropt :long-name "irc-nick")
 	 (stropt :long-name "irc-username")
-	 (stropt :long-name "irc-realname"))
+	 (stropt :long-name "irc-realname")
+	 (stropt :long-name "irc-channels"))
   (group (:header "SWANK settings:")
-	 (flag :long-name "enable-swank"
+	 (switch :long-name "enable-swank"
 	       :description "Enable SWANK (for development)")
 	 (stropt :long-name "swank-port")))
 
@@ -210,17 +283,19 @@
 	(irc-port (com.dvlsoft.clon:getopt :long-name "irc-port"))
 	(irc-nick (com.dvlsoft.clon:getopt :long-name "irc-nick"))
 	(irc-username (com.dvlsoft.clon:getopt :long-name "irc-username"))
+	(irc-channels (com.dvlsoft.clon:getopt :long-name "irc-channels"))
 	(irc-realname (com.dvlsoft.clon:getopt :long-name "irc-realname")))
 
-    (unless (and irc-host irc-port irc-nick irc-username irc-realname)
+    (unless (and irc-host irc-port irc-nick irc-username irc-realname irc-channels)
       (format *error-output* "All IRC options are required!~%")
 
       (dolist (arg (list (list "irc-host" irc-host)
 			 (list "irc-port" irc-port)
 			 (list "irc-nick" irc-nick)
 			 (list "irc-username" irc-username)
-			 (list "irc-realname" irc-realname)))
-	(format t " ~A: ~A~%" (first arg) (second arg)))
+			 (list "irc-realname" irc-realname)
+			 (list "irc-channels" irc-channels))
+	(format t " ~A: ~A~%" (first arg) (second arg))))
       (terpri *error-output*)
 
       (force-output *error-output*)
@@ -234,12 +309,13 @@
 		(port-string (com.dvlsoft.clon:getopt :long-name "swank-port")))
 	    (when port-string
 	      (setf port (parse-integer port-string)))
-
-	    (format *error-output* "Starting SWANK on port ~A~%" port)
 	    (swank:create-server :port port :dont-close t)))
 	(format *error-output* ";; Not starting SWANK.~%"))
     (force-output *error-output*)
 
+    (setf *irc-react-to-handles* (list irc-nick))
+
+    (setf *irc-channels* (cl-ppcre:split "," irc-channels))
     (setf *irc-thread*
 	  (start-irc-thread irc-host
 			    (parse-integer irc-port)
@@ -248,7 +324,7 @@
     (setf *processing-thread* (start-processing-thread))
 
 
-    (format t "Running...~%")
+    (format t ";; Running...~%")
     (let ((uptime 0))
       (loop do
 	   (format t "Uptime: ~A seconds~%" uptime)

@@ -1,4 +1,4 @@
 Urheilujuhla IRC bot
 
 - To dump a command-line runnable executable for your platform, run
-  =sbcl --non-interactive --eval (ql:quickload 'urheilujuhla) --eval (com.dvlsoft.clon:dump "urheilujuhla" urheilujuhla:main :compression t)=
+  =sbcl --non-interactive --eval "(ql:quickload 'urheilujuhla)" --eval '(com.dvlsoft.clon:dump "urheilujuhla" urheilujuhla:main :compression t)'=
