@@ -216,6 +216,9 @@
 (defun start-processing-thread ()
   (bt:make-thread #'run-processing-thread :name "processing-thread"))
 
+(defvar +date-format+
+  '((:day 2) #\. (:month 2) #\. #\Space (:HOUR 2) #\: (:MIN 2) #\Space #\( :gmt-offset #\)))
+
 (defun formatted-weather (place-name)
   (if (not place-name)
       "?¡"
@@ -225,8 +228,10 @@
 	    (format nil "Paikkaa ~A ei löydy!" place-name)
 	    (format nil "~A, ~A: ~A @ ~A" region location
 		    (cadar (last observations))
-		    (caar (last observations)))))))
-      
+		    (local-time:format-timestring
+		     nil (caar (last observations))
+		     :format +date-format+))))))
+
 
 (defun handle-irc-message (message)
   (with-slots (source arguments) message
@@ -239,8 +244,10 @@
 				    (first
 				     (cl-ppcre:split " "
 						     (string-trim " " message-proper)))))
-	   (rest-words (first (rest (cl-ppcre:split " " message-proper :limit 2)))))
-      (declare (ignore from-channel from-person))
+	   (rest-words (first (rest (cl-ppcre:split " "
+						    (string-trim " "
+								 message-proper)
+						    :limit 2)))))
 
       (when (member first-word *irc-react-to-handles* :test #'string-equal)
 	(bt:with-lock-held (*queue-lock*)
