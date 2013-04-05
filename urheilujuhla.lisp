@@ -222,7 +222,7 @@
 (defun formatted-weather (place-name)
   (if (not place-name)
       "?¡"
-      (multiple-value-bind (region location observations)
+      (destructuring-bind (region location observations)
 	  (fmi-observations:get-weather place-name)
 	(if (not region)
 	    (format nil "Paikkaa ~A ei löydy!" place-name)
