@@ -103,92 +103,6 @@
 (defun start-testing-thread ()
   (bt:make-thread #'run-testing-thread :name "testing-thread"))
 
-;;;
-;;; Weather extraction code
-;;;
-(defun string-to-dom (string)
-  (cxml:parse-octets
-   (babel:string-to-octets string)
-   (cxml-dom:make-dom-builder)))
-
-(defun extract-node-values (dom xpath-expression)
-  (xpath:with-namespaces (("gml" "http://www.opengis.net/gml/3.2")
-			  ("target" "http://xml.fmi.fi/namespace/om/atmosphericfeatures/0.95")
-			  ("gmlcov" "http://www.opengis.net/gmlcov/1.0"))
-    (let ((node-set (xpath:evaluate xpath-expression dom)))
-      (xpath:map-node-set->list
-       #'(lambda (node) (xpath:evaluate "string()" node))
-       node-set))))
-
-(defun get-weather-data (place-name)
-  (let* ((url
-	  (format nil
-		  "http://data.fmi.fi/fmi-apikey/~A/wfs?request=getFeature&storedquery_id=fmi::observations::weather::realtime::place::multipointcoverage&place=~A&timestep=30"
-		  "b37f3e99-cdb8-4858-b850-bfffea6542f9"
-		  (drakma:url-encode place-name :utf-8)))
-	 (xml (drakma:http-request url :external-format-out :utf-8 :external-format-in :utf-8))
-	 (dom (string-to-dom xml)))
-    (values
-     (list
-      (extract-node-values dom
-			   "//target:region[@codeSpace='http://xml.fmi.fi/namespace/location/region']")
-      (extract-node-values dom
-			   "//gml:name[@codeSpace='http://xml.fmi.fi/namespace/locationcode/name']")
-      (extract-node-values dom
-			   "//gmlcov:positions")
-      (extract-node-values dom
-			   "//gml:doubleOrNilReasonTupleList"))
-     url)))
-
-(defun weather-string-to-list (string)
-  (remove-if
-   #'(lambda (line) (= 0 (length line)))
-   (mapcar #'(lambda (line)
-	       (string-trim " " line))
-	   (cl-ppcre:split "\\n" string))))
-
-(defun item-from-weather-string (string position-function)
-  (mapcar #'(lambda (line)
-	      (funcall position-function (remove-if #'(lambda (item) (= 0 (length item)))
-							 (cl-ppcre:split " " line))))
-	  (weather-string-to-list string)))
-
-(defun temperature-tuples (weather-positions weather-observations)
-  (mapcar #'list
-	  (item-from-weather-string weather-positions
-				    #'(lambda (item) (local-time:unix-to-timestamp
-						      (parse-integer (car (last item))))))
-	  (item-from-weather-string weather-observations
-				    #'(lambda (item) 
-					(handler-case 
-					    (parse-number:parse-number (first item))
-					  (sb-int:simple-parse-error (s-p-e)
-					    (declare (ignore s-p-e))
-					    nil))))))
-
-(defun sort-temperature-tuples (tuples)
-  (sort tuples
-	#'(lambda (x y) (local-time:timestamp< (car x) (car y)))))
-
-(defun get-weather (place-name)
-  (let* ((result (get-weather-data place-name))
-	 (locations (car (third result)))
-	 (observations (car (fourth result))))
-    (values
-     (car (first result))
-     (car (second result))
-     (sort-temperature-tuples
-      (temperature-tuples
-       locations observations)))))
-
-;; (mapcar #'list
-;; 	(item-from-weather-string (first *liakka-times*)
-;; 				  #'(lambda (item) (local-time:unix-to-timestamp
-;; 						    (parse-integer (car (last item))))))
-;; 	(item-from-weather-string (first *liakka-observations*)
-;; 				  #'(lambda (item) (parse-number:parse-number (first item)))))
-
-
 
 ;;;
 ;;; Actual "brain" of the bot
@@ -219,19 +133,35 @@
 (defvar +date-format+
   '((:day 2) #\. (:month 2) #\. #\Space (:HOUR 2) #\: (:MIN 2) #\Space #\( :gmt-offset #\)))
 
+(defun format-last-observation (region location observations)
+  (format nil "~A, ~A: ~A @ ~A" region location
+	  (cadar (last observations))
+	  (local-time:format-timestring nil (caar (last observations)) :format +date-format+)))
+
+
+(defun minutes-ago (timestamp)
+  (round (/ (float (- (local-time:timestamp-to-universal (local-time:now))
+		      (local-time:timestamp-to-universal timestamp))) 60)))
+
+(defun format-last-three-observations (region location observations)
+  (let* ((non-nil-observations (remove-if-not #'cadr observations))
+	 (item-count (length non-nil-observations))
+	 (last-three (subseq non-nil-observations (- item-count 3))))
+    (format nil "~A, ~A: ~A." region location
+	    (format nil "~{~{~A°C (~A min. sitten)~}~^, ~}" (mapcar #'(lambda (item)
+									(list 
+									 (car (last item))
+									 (minutes-ago (first item))))
+								    last-three)))))
+
 (defun formatted-weather (place-name)
   (if (not place-name)
       "?¡"
       (destructuring-bind (region location observations)
 	  (fmi-observations:get-weather place-name)
 	(if (not region)
-	    (format nil "Paikkaa ~A ei löydy!" place-name)
-	    (format nil "~A, ~A: ~A @ ~A" region location
-		    (cadar (last observations))
-		    (local-time:format-timestring
-		     nil (caar (last observations))
-		     :format +date-format+))))))
-
+	    (format nil "Paikkaa ~A ei löydy." place-name)
+	    (format-last-three-observations region location observations)))))
 
 (defun handle-irc-message (message)
   (with-slots (source arguments) message
