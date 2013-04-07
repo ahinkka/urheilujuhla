@@ -148,11 +148,11 @@
 	 (item-count (length non-nil-observations))
 	 (last-three (subseq non-nil-observations (- item-count 3))))
     (format nil "~A, ~A: ~A." region location
-	    (format nil "~{~{~A°C (~A min. sitten)~}~^, ~}" (mapcar #'(lambda (item)
-									(list 
-									 (car (last item))
-									 (minutes-ago (first item))))
-								    last-three)))))
+	    (format nil "~{~{~A°C (~A min. sitten)~}~^, ~}"
+		    (mapcar #'(lambda (item)
+				(list (car (last item))
+				      (minutes-ago (first item))))
+			    last-three)))))
 
 (defun formatted-weather (place-name)
   (if (not place-name)
@@ -250,7 +250,7 @@
 	(format *error-output* ";; Not starting SWANK.~%"))
     (force-output *error-output*)
 
-    (setf *irc-react-to-handles* (list irc-nick))
+    (setf *irc-react-to-handles* (list irc-nick, "sää", "uj"))
 
     (setf *irc-channels* (cl-ppcre:split "," irc-channels))
     (setf *irc-thread*
