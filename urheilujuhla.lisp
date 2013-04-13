@@ -154,14 +154,65 @@
 				      (minutes-ago (first item))))
 			    last-three)))))
 
+(defun resolve-place-name-coordinates (place-name)
+  (let ((place place-name)
+	(municipality nil))
+
+    (when (some #'(lambda (x) (char-equal #\, x)) place-name)
+      (destructuring-bind (p m) (cl-ppcre:split "," place-name)
+	(setf place p)
+	(setf municipality m)))
+
+    (let* ((url
+	   (if municipality
+	       (format nil "http://api.paikkis.fi/v1/pois.json?filter=~A&municipality=~A&resultcount=1"
+		       (drakma:url-encode (string-trim " " place) :utf-8)
+		       (drakma:url-encode (string-trim " " municipality) :utf-8))
+	       (format nil "http://api.paikkis.fi/v1/pois.json?filter=~A&resultcount=1"
+		       (drakma:url-encode (string-trim " " place) :utf-8))))
+	   (stream
+	    (flexi-streams:make-flexi-stream
+	     (drakma:http-request url :want-stream t)
+	     :external-format (flexi-streams:make-external-format :utf-8)))
+	   (alist (cl-json:decode-json stream)))
+      (values alist url))))
+
+(defun nearest-weather-station-id (lat lon)
+  (let ((nearest)
+	(nearest-distance))
+
+    (flet ((distance (lat1 lon1 lat2 lon2)
+	     (sqrt (+
+		    (* (abs (- lat1 lat2)) (abs (- lat1 lat2)))
+		    (* (abs (- lon1 lon2)) (abs (- lon1 lon2)))))))
+
+      (dolist (item fmi-observations:*location-to-fmisid*)
+	(let ((dist (distance (caar item) (cadar item) lat lon)))
+	  (when (or
+		 (eq nearest nil)
+		 (< dist nearest-distance))
+	    (progn
+	      (setf nearest item)
+	      (setf nearest-distance dist)))))
+
+      (car (last nearest)))))
+
 (defun formatted-weather (place-name)
   (if (not place-name)
       "?¡"
-      (destructuring-bind (region location observations)
-	  (fmi-observations:get-weather place-name)
-	(if (not region)
-	    (format nil "Paikkaa ~A ei löydy." place-name)
-	    (format-last-three-observations region location observations)))))
+      (let*
+	  ((place (first (resolve-place-name-coordinates place-name)))
+	   (lat (cdr (assoc :lat place)))
+	   (lon (cdr (assoc :lon place))))
+
+	(when (eq lat nil)
+	  (return-from formatted-weather (format nil "Paikkaa ~A ei löydy." place-name)))
+
+	(destructuring-bind (region location observations)
+	    (fmi-observations:get-station-observations (nearest-weather-station-id lat lon))
+	  (if (eq nil region)
+	      (format nil "Paikkaa ~A ei löydy." place-name)
+	      (format-last-three-observations region location observations))))))
 
 (defun handle-irc-message (message)
   (with-slots (source arguments) message
