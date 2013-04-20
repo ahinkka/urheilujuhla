@@ -197,22 +197,39 @@
 
       (car (last nearest)))))
 
+
+(defun formatted-weather-using-paikkis (place-name)
+  (let*
+      ((place (first (resolve-place-name-coordinates place-name)))
+       (lat (cdr (assoc :lat place)))
+       (lon (cdr (assoc :lon place))))
+
+    (when (eq lat nil)
+      (return-from formatted-weather-using-paikkis nil))
+
+    (destructuring-bind (region location observations)
+	(fmi-observations:get-station-observations (nearest-weather-station-id lat lon))
+      (if (eq nil region)
+	  nil
+	  (format-last-three-observations region location observations)))))
+
+(defun formatted-weather-using-fmi-weather (place-name)
+  (destructuring-bind (region location observations)
+      (fmi-observations:get-weather place-name)
+    (if (eq nil region)
+	nil
+	(format-last-three-observations region location observations))))
+
 (defun formatted-weather (place-name)
-  (if (not place-name)
-      "?¡"
-      (let*
-	  ((place (first (resolve-place-name-coordinates place-name)))
-	   (lat (cdr (assoc :lat place)))
-	   (lon (cdr (assoc :lon place))))
+  (when place-name
+    (let ((weather (formatted-weather-using-fmi-weather place-name)))
+      (when (eq nil weather)
+	(setf weather (formatted-weather-using-paikkis place-name)))
+      (if weather
+	  (return-from formatted-weather weather)
+	  (format nil "Paikkaa ~A ei löytynyt." place-name))))
+  "?¡")
 
-	(when (eq lat nil)
-	  (return-from formatted-weather (format nil "Paikkaa ~A ei löydy." place-name)))
-
-	(destructuring-bind (region location observations)
-	    (fmi-observations:get-station-observations (nearest-weather-station-id lat lon))
-	  (if (eq nil region)
-	      (format nil "Paikkaa ~A ei löydy." place-name)
-	      (format-last-three-observations region location observations))))))
 
 (defun handle-irc-message (message)
   (with-slots (source arguments) message
