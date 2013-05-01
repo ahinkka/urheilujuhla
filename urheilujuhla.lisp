@@ -116,7 +116,8 @@
        (loop while (> (length *from-irc*) 0) do
 	    (let ((msg (pop *from-irc*)))
 	      (bt:make-thread #'(lambda ()
-				  (handle-irc-message msg)))))
+				  (handle-irc-message msg))
+			      :name "irc-message-handler")))
 
 
 
@@ -269,14 +270,11 @@
 						    :limit 2)))))
 
       (when (member first-word *irc-react-to-handles* :test #'string-equal)
-	(bt:with-lock-held (*queue-lock*)
-	  (if from-person
-	      (push (list source
-			  (formatted-weather rest-words)) *to-irc*)
-	      (push (list from-channel
-			  (format nil "~A, ~A"
-				  source (formatted-weather rest-words)))
-			  *to-irc*)))))))
+	(let ((formatted (formatted-weather rest-words)))
+	  (bt:with-lock-held (*queue-lock*)
+	    (if from-person
+		(push (list source formatted) *to-irc*)
+		(push (list from-channel (format nil "~A, ~A" source formatted)) *to-irc*))))))))
 
 
 ;;;
