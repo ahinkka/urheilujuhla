@@ -133,6 +133,26 @@
 (defvar +date-format+
   '((:day 2) #\. (:month 2) #\. #\Space (:HOUR 2) #\: (:MIN 2) #\Space #\( :gmt-offset #\)))
 
+;; Sparklines in Common Lisp;
+;;  see <http://www.edwardtufte.com/bboard/q-and-a-fetch-msg?msg_id=0001OR"> for reference.
+(defun sparkline (seq)
+  (let* ((sorted (sort (copy-seq seq) #'<))
+	 (min (elt sorted 0))
+	 (max (elt sorted (- (length sorted) 1))))
+	 ;; (a / ((aMax - aMin) / (max - min))) + min
+
+    (let ((spark-chars #(#\▁ #\▂ #\▃ #\▄ #\▅ #\▆ #\▇ #\█)))
+      (with-output-to-string (out)
+	(loop for elem being the elements of seq
+	   do
+	     (format out "~a"
+		     (elt spark-chars
+			  (floor (/ (- elem min)
+				    (/
+				     (- max min)
+				     (- (length spark-chars) 1)))))))
+	out))))
+
 (defun format-last-observation (region location observations)
   (format nil "~A, ~A: ~A @ ~A" region location
 	  (cadar (last observations))
@@ -146,8 +166,10 @@
 (defun format-last-three-observations (region location observations)
   (let* ((non-nil-observations (remove-if-not #'cadr observations))
 	 (item-count (length non-nil-observations))
-	 (last-three (subseq non-nil-observations (- item-count 3))))
-    (format nil "~A, ~A: ~A." region location
+	 (last-three (subseq non-nil-observations (- item-count 3)))
+	 (last-twentyfour (subseq non-nil-observations (- item-count 24)))
+	 (sparkline (sparkline (mapcar #' car (mapcar #'last last-twentyfour)))))
+    (format nil "~A, ~A: ~A; ~A." region location sparkline
 	    (format nil "~{~{~A°C (~A min. sitten)~}~^, ~}"
 		    (mapcar #'(lambda (item)
 				(list (car (last item))
