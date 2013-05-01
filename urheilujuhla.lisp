@@ -133,7 +133,7 @@
 (defvar +date-format+
   '((:day 2) #\. (:month 2) #\. #\Space (:HOUR 2) #\: (:MIN 2) #\Space #\( :gmt-offset #\)))
 
-;; Sparklines in Common Lisp;
+;; Simple textual Unicode sparklines in Common Lisp;
 ;;  see <http://www.edwardtufte.com/bboard/q-and-a-fetch-msg?msg_id=0001OR"> for reference.
 (defun sparkline (seq)
   (let* ((sorted (sort (copy-seq seq) #'<))
