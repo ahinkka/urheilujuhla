@@ -139,7 +139,6 @@
   (let* ((sorted (sort (copy-seq seq) #'<))
 	 (min (elt sorted 0))
 	 (max (elt sorted (- (length sorted) 1))))
-	 ;; (a / ((aMax - aMin) / (max - min))) + min
 
     (let ((spark-chars #(#\▁ #\▂ #\▃ #\▄ #\▅ #\▆ #\▇ #\█)))
       (with-output-to-string (out)
