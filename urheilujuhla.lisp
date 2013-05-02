@@ -168,8 +168,11 @@
 	 (item-count (length non-nil-observations))
 	 (last-three (subseq non-nil-observations (- item-count 3)))
 	 (last-twentyfour (subseq non-nil-observations (- item-count 24)))
-	 (sparkline (sparkline (mapcar #' car (mapcar #'last last-twentyfour)))))
-    (format nil "~A, ~A: ~A; ~A." region location sparkline
+	 (twentyfour-observations (mapcar #' car (mapcar #'last last-twentyfour)))
+	 (min (apply #'min twentyfour-observations))
+	 (max (apply #'max twentyfour-observations))
+	 (sparkline (sparkline twentyfour-observations)))
+    (format nil "~A, ~A: ~A [~AC°—~A°C]; ~A." region location sparkline min max
 	    (format nil "~{~{~A°C (~A min. sitten)~}~^, ~}"
 		    (mapcar #'(lambda (item)
 				(list (car (last item))
