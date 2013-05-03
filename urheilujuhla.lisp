@@ -167,7 +167,9 @@
   (let* ((non-nil-observations (remove-if-not #'cadr observations))
 	 (item-count (length non-nil-observations))
 	 (last-three (subseq non-nil-observations (- item-count 3)))
-	 (last-twentyfour (subseq non-nil-observations (- item-count 24)))
+	 (last-twentyfour (if (> (length non-nil-observations) 23)
+			      (subseq non-nil-observations (- item-count 24))
+			      non-nil-observations))
 	 (twentyfour-observations (mapcar #' car (mapcar #'last last-twentyfour)))
 	 (min (apply #'min twentyfour-observations))
 	 (max (apply #'max twentyfour-observations))
@@ -273,11 +275,16 @@
 						    :limit 2)))))
 
       (when (member first-word *irc-react-to-handles* :test #'string-equal)
-	(let ((formatted (formatted-weather rest-words)))
+	(let ((message nil))
+	  (handler-case (setf message (formatted-weather rest-words))
+	    (simple-error (s-e)
+	      (format *error-output* "Failed to get formatted weather for ~a (~a)" rest-words s-e)
+	      (setf message "-1")))
+
 	  (bt:with-lock-held (*queue-lock*)
 	    (if from-person
-		(push (list source formatted) *to-irc*)
-		(push (list from-channel (format nil "~A, ~A" source formatted)) *to-irc*))))))))
+		(push (list source message) *to-irc*)
+		(push (list from-channel (format nil "~A, ~A" source message)) *to-irc*))))))))
 
 
 ;;;
