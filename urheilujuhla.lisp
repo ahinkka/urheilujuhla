@@ -158,28 +158,27 @@
 	  (cadar (last observations))
 	  (local-time:format-timestring nil (caar (last observations)) :format +date-format+)))
 
-
 (defun minutes-ago (timestamp)
   (round (/ (float (- (local-time:timestamp-to-universal (local-time:now))
 		      (local-time:timestamp-to-universal timestamp))) 60)))
 
 (defun format-short-text (region location observations)
-  (let* ((non-nil-observations (remove-if-not #'cadr observations))
-	 (item-count (length non-nil-observations))
-	 (last-observation (last non-nil-observations))
-	 (last-twentyfour (if (> (length non-nil-observations) 23)
-			      (subseq non-nil-observations (- item-count 24))
-			      non-nil-observations))
-	 (twentyfour-observations (mapcar #' car (mapcar #'last last-twentyfour)))
+  (let* ((item-count (length observations))
+	 (last-observation (last observations))
+	 (last-twentyfour (if (> (length observations) 23)
+			      (subseq observations (- item-count 24))
+			      observations))
+	 (twentyfour-observations (mapcar #'fmi-observations:temperature last-twentyfour))
 	 (min (apply #'min twentyfour-observations))
 	 (max (apply #'max twentyfour-observations))
 	 (sparkline (sparkline twentyfour-observations)))
     (format nil "~A, ~A: [~A, ~A] ~A; ~A." region location min max sparkline
-	    (format nil "~{~{~A°C (-~A min.)~}~^, ~}"
-		    (mapcar #'(lambda (item)
-				(list (car (last item))
-				      (minutes-ago (first item))))
-			    last-observation)))))
+	    (format
+	     nil "~{~{~A°C (-~A min.)~}~^, ~}"
+	     (mapcar #'(lambda (item)
+			 (list (fmi-observations:temperature item)
+			       (minutes-ago (fmi-observations:observation-time item))))
+		     last-observation)))))
 
 (defun resolve-place-name-coordinates (place-name)
   (let ((place place-name)
@@ -234,16 +233,16 @@
     (when (eq lat nil)
       (return-from formatted-weather-using-paikkis nil))
 
-    (destructuring-bind (region location observations)
-	(fmi-observations:get-station-observations (nearest-weather-station-id lat lon))
+    (multiple-value-bind (observations region location)
+	(fmi-observations:station-observations (nearest-weather-station-id lat lon))
       (if (eq nil region)
 	  nil
 	  (format-short-text region location observations)))))
 
 (defun formatted-weather-using-fmi-weather (place-name)
-  (destructuring-bind (region location observations)
-      (fmi-observations:get-weather place-name)
-    (if (eq nil region)
+  (multiple-value-bind (observations region location)
+      (fmi-observations:observations place-name)
+    (if (eq nil observations)
 	nil
 	(format-short-text region location observations))))
 
