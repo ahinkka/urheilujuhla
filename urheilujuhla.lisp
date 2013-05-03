@@ -346,7 +346,7 @@
 	(format *error-output* ";; Not starting SWANK.~%"))
     (force-output *error-output*)
 
-    (setf *irc-react-to-handles* (list irc-nick "sää" "uj"))
+    (setf *irc-react-to-handles* (list irc-nick "sää" "uj" "SÄÄ"))
 
     (setf *irc-channels* (cl-ppcre:split "," irc-channels))
     (setf *irc-thread*
