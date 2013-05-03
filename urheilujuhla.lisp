@@ -163,10 +163,10 @@
   (round (/ (float (- (local-time:timestamp-to-universal (local-time:now))
 		      (local-time:timestamp-to-universal timestamp))) 60)))
 
-(defun format-last-three-observations (region location observations)
+(defun format-short-text (region location observations)
   (let* ((non-nil-observations (remove-if-not #'cadr observations))
 	 (item-count (length non-nil-observations))
-	 (last-three (subseq non-nil-observations (- item-count 3)))
+	 (last-observation (last non-nil-observations))
 	 (last-twentyfour (if (> (length non-nil-observations) 23)
 			      (subseq non-nil-observations (- item-count 24))
 			      non-nil-observations))
@@ -174,12 +174,12 @@
 	 (min (apply #'min twentyfour-observations))
 	 (max (apply #'max twentyfour-observations))
 	 (sparkline (sparkline twentyfour-observations)))
-    (format nil "~A, ~A: ~A [~AC°—~A°C]; ~A." region location sparkline min max
-	    (format nil "~{~{~A°C (~A min. sitten)~}~^, ~}"
+    (format nil "~A, ~A: [~A, ~A] ~A; ~A." region location min max sparkline
+	    (format nil "~{~{~A°C (-~A min.)~}~^, ~}"
 		    (mapcar #'(lambda (item)
 				(list (car (last item))
 				      (minutes-ago (first item))))
-			    last-three)))))
+			    last-observation)))))
 
 (defun resolve-place-name-coordinates (place-name)
   (let ((place place-name)
@@ -238,14 +238,14 @@
 	(fmi-observations:get-station-observations (nearest-weather-station-id lat lon))
       (if (eq nil region)
 	  nil
-	  (format-last-three-observations region location observations)))))
+	  (format-short-text region location observations)))))
 
 (defun formatted-weather-using-fmi-weather (place-name)
   (destructuring-bind (region location observations)
       (fmi-observations:get-weather place-name)
     (if (eq nil region)
 	nil
-	(format-last-three-observations region location observations))))
+	(format-short-text region location observations))))
 
 (defun formatted-weather (place-name)
   (when place-name
