@@ -161,7 +161,7 @@
 		 direction)))
 	 (direction-symbol (number)
 	   (let
-	       ((direction-chars #(#\↑ #\↗ #\→ #\↘ #\↓ #\↙ #\← #\↖)))
+	       ((direction-chars #(#\↓ #\↙ #\← #\↖ #\↑ #\↗ #\→ #\↘)))
 	     (elt direction-chars number))))
     (format nil "~{~A~}"
      (map 'list (alexandria:compose #'direction-symbol #'direction-number) seq))))
@@ -328,7 +328,13 @@
 	   (handler-case (setf message (formatted-weather rest-words))
 	     (simple-error (s-e)
 	       (format *error-output* "Failed to get formatted weather for ~a (~a)" rest-words s-e)
-	       (setf message "-1")))
+	       (setf message (format nil "~a" s-e)))
+	     (type-error (t-e)
+	       (format *error-output* "Failed to get formatted weather for ~a (~a)" rest-words t-e)
+	       (setf message (format nil "~a" t-e)))
+	     (floating-point-invalid-operation (f-p-i-o)
+	       (format *error-output* "Failed to get formatted wind for ~a (~a)" rest-words f-p-i-o)
+	       (setf message (format nil "~a" f-p-i-o))))
 
 	   (bt:with-lock-held (*queue-lock*)
 	     (if from-person
@@ -339,7 +345,13 @@
 	   (handler-case (setf message (formatted-wind rest-words))
 	     (simple-error (s-e)
 	       (format *error-output* "Failed to get formatted wind for ~a (~a)" rest-words s-e)
-	       (setf message "-1")))
+	       (setf message (format nil "~a" s-e)))
+	     (type-error (t-e)
+	       (format *error-output* "Failed to get formatted wind for ~a (~a)" rest-words t-e)
+	       (setf message (format nil "~a" t-e)))
+	     (floating-point-invalid-operation (f-p-i-o)
+	       (format *error-output* "Failed to get formatted wind for ~a (~a)" rest-words f-p-i-o)
+	       (setf message (format nil "~a" f-p-i-o))))
 
 	   (bt:with-lock-held (*queue-lock*)
 	     (if from-person
