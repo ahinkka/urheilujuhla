@@ -162,7 +162,7 @@
   (round (/ (float (- (local-time:timestamp-to-universal (local-time:now))
 		      (local-time:timestamp-to-universal timestamp))) 60)))
 
-(defun format-short-text (region location observations)
+(defun format-short-text (region location observations location-source)
   (let* ((item-count (length observations))
 	 (last-observation (last observations))
 	 (last-twentyfour (if (> (length observations) 23)
@@ -172,13 +172,13 @@
 	 (min (apply #'min twentyfour-observations))
 	 (max (apply #'max twentyfour-observations))
 	 (sparkline (sparkline twentyfour-observations)))
-    (format nil "~A, ~A: [~A, ~A] ~A; ~A." region location min max sparkline
+    (format nil "~A, ~A: [~A, ~A] ~A; ~A (~A)." region location min max sparkline
 	    (format
 	     nil "~{~{~A°C (-~A min.)~}~^, ~}"
 	     (mapcar #'(lambda (item)
 			 (list (fmi-observations:temperature item)
 			       (minutes-ago (fmi-observations:observation-time item))))
-		     last-observation)))))
+		     last-observation)) location-source)))
 
 (defun resolve-place-name-coordinates (place-name)
   (let ((place place-name)
@@ -224,36 +224,29 @@
       (car (last nearest)))))
 
 
-(defun formatted-weather-using-paikkis (place-name)
+(defun formatted-weather (place-name)
+  (when (eq nil place-name)
+    (return-from formatted-weather "Paikan nimi vaaditaan."))
+
+  (multiple-value-bind (observations region location)
+      (fmi-observations:observations place-name)
+
+    (when (not (eq nil observations))
+      (return-from formatted-weather (format-short-text region location observations "FMI"))))
+
   (let*
       ((place (first (resolve-place-name-coordinates place-name)))
        (lat (cdr (assoc :lat place)))
        (lon (cdr (assoc :lon place))))
 
     (when (eq lat nil)
-      (return-from formatted-weather-using-paikkis nil))
+      (return-from formatted-weather (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name)))
 
     (multiple-value-bind (observations region location)
 	(fmi-observations:station-observations (nearest-weather-station-id lat lon))
-      (if (eq nil region)
-	  nil
-	  (format-short-text region location observations)))))
-
-(defun formatted-weather-using-fmi-weather (place-name)
-  (multiple-value-bind (observations region location)
-      (fmi-observations:observations place-name)
-    (if (eq nil observations)
-	nil
-	(format-short-text region location observations))))
-
-(defun formatted-weather (place-name)
-  (when place-name
-    (let ((weather (formatted-weather-using-fmi-weather place-name)))
-      (when (eq nil weather)
-	(setf weather (formatted-weather-using-paikkis place-name)))
-      (if weather
-	  (return-from formatted-weather weather)
-	  (format nil "Paikkaa ~A ei löytynyt." place-name))))
+      (when (not (eq nil region))
+	(return-from formatted-weather (format-short-text region location observations "Paikkis")))))
+  ;; (format nil "Paikkaa ~A ei löytynyt." place-name))))
   "?¡")
 
 
