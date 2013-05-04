@@ -16,7 +16,6 @@
 (defvar *irc-connection*)
 (defvar *irc-channels*)
 (defvar *irc-sender-should-stop* nil)
-(defvar *irc-react-to-handles* nil)
 
 (defvar *queue-lock* (bt:make-lock "queue-lock"))
 (defvar *queues-updated* (bt:make-condition-variable :name "queues-updated"))
@@ -153,6 +152,20 @@
 				     (- (length spark-chars) 1)))))))
 	out))))
 
+
+(defun directions-line (seq)
+  (flet ((direction-number (number)
+	   (let ((direction (round (/ number 45.0))))
+	     (if (= direction 8)
+		 0
+		 direction)))
+	 (direction-symbol (number)
+	   (let
+	       ((direction-chars #(#\↑ #\↗ #\→ #\↘ #\↓ #\↙ #\← #\↖)))
+	     (elt direction-chars number))))
+    (format nil "~{~A~}"
+     (map 'list (alexandria:compose #'direction-symbol #'direction-number) seq))))
+
 (defun format-last-observation (region location observations)
   (format nil "~A, ~A: ~A @ ~A" region location
 	  (cadar (last observations))
@@ -179,6 +192,25 @@
 			 (list (fmi-observations:temperature item)
 			       (minutes-ago (fmi-observations:observation-time item))))
 		     last-observation)) location-source)))
+
+(defun format-wind-short-text (region location observations location-source)
+  (let* ((item-count (length observations))
+	 (last-observation (car (last observations)))
+	 (last-twentyfour (if (> (length observations) 23)
+			      (subseq observations (- item-count 24))
+			      observations))
+	 (twentyfour-observations (mapcar #'fmi-observations:windspeed last-twentyfour))
+	 (twentyfour-directions (mapcar #'fmi-observations:wind-direction last-twentyfour))
+	 (min (apply #'min twentyfour-observations))
+	 (max (apply #'max twentyfour-observations))
+	 (sparkline (sparkline twentyfour-observations))
+	 (directions-line (directions-line twentyfour-directions)))
+    (format nil "~A, ~A: [~A, ~A] ~A; ~A; ~A (~A)." region location min max sparkline directions-line
+	    (format nil "~A m/s, ~A° (-~A min.)"
+		    (fmi-observations:windspeed last-observation)
+		    (fmi-observations:wind-direction last-observation)
+		    (minutes-ago (fmi-observations:observation-time last-observation)))
+	    location-source)))
 
 (defun resolve-place-name-coordinates (place-name)
   (let ((place place-name)
@@ -249,6 +281,30 @@
   ;; (format nil "Paikkaa ~A ei löytynyt." place-name))))
   "?¡")
 
+(defun formatted-wind (place-name)
+  (when (eq nil place-name)
+    (return-from formatted-wind "Paikan nimi vaaditaan."))
+
+  (multiple-value-bind (observations region location)
+      (fmi-observations:observations place-name)
+
+    (when (not (eq nil observations))
+      (return-from formatted-wind (format-wind-short-text region location observations "FMI"))))
+
+  (let*
+      ((place (first (resolve-place-name-coordinates place-name)))
+       (lat (cdr (assoc :lat place)))
+       (lon (cdr (assoc :lon place))))
+
+    (when (eq lat nil)
+      (return-from formatted-wind (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name)))
+
+    (multiple-value-bind (observations region location)
+	(fmi-observations:station-observations (nearest-weather-station-id lat lon))
+      (when (not (eq nil region))
+	(return-from formatted-wind (format-wind-short-text region location observations "Paikkis")))))
+  ;; (format nil "Paikkaa ~A ei löytynyt." place-name))))
+  "?¡")
 
 (defun handle-irc-message (message)
   (with-slots (source arguments) message
@@ -266,17 +322,29 @@
 								 message-proper)
 						    :limit 2)))))
 
-      (when (member first-word *irc-react-to-handles* :test #'string-equal)
-	(let ((message nil))
-	  (handler-case (setf message (formatted-weather rest-words))
-	    (simple-error (s-e)
-	      (format *error-output* "Failed to get formatted weather for ~a (~a)" rest-words s-e)
-	      (setf message "-1")))
+      (cond
+	((string= first-word "SÄÄ")
+	 (let ((message nil))
+	   (handler-case (setf message (formatted-weather rest-words))
+	     (simple-error (s-e)
+	       (format *error-output* "Failed to get formatted weather for ~a (~a)" rest-words s-e)
+	       (setf message "-1")))
 
-	  (bt:with-lock-held (*queue-lock*)
-	    (if from-person
-		(push (list source message) *to-irc*)
-		(push (list from-channel (format nil "~A, ~A" source message)) *to-irc*))))))))
+	   (bt:with-lock-held (*queue-lock*)
+	     (if from-person
+		 (push (list source message) *to-irc*)
+		 (push (list from-channel (format nil "~A, ~A" source message)) *to-irc*)))))
+	((string= first-word "TUULI")
+	 (let ((message nil))
+	   (handler-case (setf message (formatted-wind rest-words))
+	     (simple-error (s-e)
+	       (format *error-output* "Failed to get formatted wind for ~a (~a)" rest-words s-e)
+	       (setf message "-1")))
+
+	   (bt:with-lock-held (*queue-lock*)
+	     (if from-person
+		 (push (list source message) *to-irc*)
+		 (push (list from-channel (format nil "~A, ~A" source message)) *to-irc*)))))))))
 
 
 ;;;
@@ -338,8 +406,6 @@
 	    (swank:create-server :port port :dont-close t)))
 	(format *error-output* ";; Not starting SWANK.~%"))
     (force-output *error-output*)
-
-    (setf *irc-react-to-handles* (list irc-nick "sää" "uj" "SÄÄ"))
 
     (setf *irc-channels* (cl-ppcre:split "," irc-channels))
     (setf *irc-thread*
