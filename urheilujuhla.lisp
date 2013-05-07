@@ -141,33 +141,36 @@
 	      when (numberp elem) collect elem into numbers
 	      finally (return (apply comparator numbers)))))
     (let ((min (apply-to-numbers seq #'min))
-	  (max (apply-to-numbers seq #'max)))
-
-      (let ((spark-chars #(#\▁ #\▂ #\▃ #\▄ #\▅ #\▆ #\▇ #\█)))
-	(with-output-to-string (out)
-	  (loop for elem being the elements of seq
-	     do
-	       (if (not (numberp elem))
-		   (format out "~a" "X")
-		   (format out "~a"
-			   (elt spark-chars
-				(floor (/ (- elem min)
-					  (/
-					   (- max min)
-					   (- (length spark-chars) 1))))))))
-	     out)))))
+	  (max (apply-to-numbers seq #'max))
+	  (spark-chars #(#\▁ #\▂ #\▃ #\▄ #\▅ #\▆ #\▇ #\█)))
+      (values
+       (with-output-to-string (out)
+	 (loop for elem being the elements of seq do
+	      (if (not (numberp elem))
+		  (format out "~a" "X")
+		  (format out "~a"
+			  (elt spark-chars
+			       (floor (/ (- elem min)
+					 (/
+					  (- max min)
+					  (- (length spark-chars) 1)))))))))
+       min max))))
 
 
 (defun directions-line (seq)
   (flet ((direction-number (number)
-	   (let ((direction (round (/ number 45.0))))
-	     (if (= direction 8)
-		 0
-		 direction)))
+	   (if (eq nil number)
+	       nil
+	       (let ((direction (round (/ number 45.0))))
+		 (if (= direction 8)
+		     0
+		     direction))))
 	 (direction-symbol (number)
-	   (let
-	       ((direction-chars #(#\↓ #\↙ #\← #\↖ #\↑ #\↗ #\→ #\↘)))
-	     (elt direction-chars number))))
+	   (if (eq nil number)
+	       #\X
+	       (let
+		   ((direction-chars #(#\↓ #\↙ #\← #\↖ #\↑ #\↗ #\→ #\↘)))
+		 (elt direction-chars number)))))
     (format nil "~{~A~}"
      (map 'list (alexandria:compose #'direction-symbol #'direction-number) seq))))
 
@@ -186,17 +189,15 @@
 	 (last-twentyfour (if (> (length observations) 23)
 			      (subseq observations (- item-count 24))
 			      observations))
-	 (twentyfour-observations (mapcar #'fmi-observations:temperature last-twentyfour))
-	 (min (apply #'min twentyfour-observations))
-	 (max (apply #'max twentyfour-observations))
-	 (sparkline (sparkline twentyfour-observations)))
-    (format nil "~A, ~A: [~A, ~A] ~A; ~A (~A)." region location min max sparkline
-	    (format
-	     nil "~{~{~A°C (-~A min.)~}~^, ~}"
-	     (mapcar #'(lambda (item)
-			 (list (fmi-observations:temperature item)
-			       (minutes-ago (fmi-observations:observation-time item))))
-		     last-observation)) location-source)))
+	 (twentyfour-observations (mapcar #'fmi-observations:temperature last-twentyfour)))
+    (multiple-value-bind (sparkline min max)
+	(sparkline twentyfour-observations)
+      (format nil "~A, ~A: [~A, ~A] ~A; ~A (~A)." region location min max sparkline
+	      (format nil "~{~{~A°C (-~A min.)~}~^, ~}"
+		      (mapcar #'(lambda (item)
+				  (list (fmi-observations:temperature item)
+					(minutes-ago (fmi-observations:observation-time item))))
+			      last-observation)) location-source))))
 
 (defun format-wind-short-text (region location observations location-source)
   (let* ((item-count (length observations))
@@ -206,16 +207,15 @@
 			      observations))
 	 (twentyfour-observations (mapcar #'fmi-observations:windspeed last-twentyfour))
 	 (twentyfour-directions (mapcar #'fmi-observations:wind-direction last-twentyfour))
-	 (min (apply #'min twentyfour-observations))
-	 (max (apply #'max twentyfour-observations))
-	 (sparkline (sparkline twentyfour-observations))
 	 (directions-line (directions-line twentyfour-directions)))
-    (format nil "~A, ~A: [~A, ~A] ~A; ~A; ~A (~A)." region location min max sparkline directions-line
-	    (format nil "~A m/s, ~A° (-~A min.)"
-		    (fmi-observations:windspeed last-observation)
-		    (fmi-observations:wind-direction last-observation)
-		    (minutes-ago (fmi-observations:observation-time last-observation)))
-	    location-source)))
+    (multiple-value-bind (sparkline min max)
+	(sparkline twentyfour-observations)
+      (format nil "~A, ~A: [~A, ~A] ~A; ~A; ~A (~A)." region location min max sparkline directions-line
+	      (format nil "~A m/s, ~A° (-~A min.)"
+		      (fmi-observations:windspeed last-observation)
+		      (fmi-observations:wind-direction last-observation)
+		      (minutes-ago (fmi-observations:observation-time last-observation)))
+	      location-source))))
 
 (defun resolve-place-name-coordinates (place-name)
   (let ((place place-name)
