@@ -2,6 +2,8 @@
   :depends-on (#:bordeaux-threads
 	       #:flexi-streams
 	       #:babel
+	       #:alexandria
+	       #:iterate
 
 	       #:object-system
 	       #:lift

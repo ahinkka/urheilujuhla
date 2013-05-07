@@ -1,6 +1,7 @@
 (defpackage #:urheilujuhla
   (:use
    #:common-lisp
+   #:iterate
 
    #:cl-irc
    #:object-system)
@@ -137,23 +138,24 @@
 ;;  see <http://www.edwardtufte.com/bboard/q-and-a-fetch-msg?msg_id=0001OR"> for reference.
 (defun sparkline (seq)
   (flet ((apply-to-numbers (seq comparator)
-	   (loop for elem being the elements of seq
-	      when (numberp elem) collect elem into numbers
-	      finally (return (apply comparator numbers)))))
+	   (iter (for elem in-sequence seq)
+		 (when (numberp elem)
+		   (collect elem into numbers))
+		 (finally (return (apply comparator numbers))))))
     (let ((min (apply-to-numbers seq #'min))
 	  (max (apply-to-numbers seq #'max))
 	  (spark-chars #(#\▁ #\▂ #\▃ #\▄ #\▅ #\▆ #\▇ #\█)))
       (values
        (with-output-to-string (out)
-	 (loop for elem being the elements of seq do
-	      (if (not (numberp elem))
-		  (format out "~a" "X")
-		  (format out "~a"
-			  (elt spark-chars
-			       (floor (/ (- elem min)
-					 (/
-					  (- max min)
-					  (- (length spark-chars) 1)))))))))
+	 (iter (for elem in-sequence seq)
+	       (if (not (numberp elem))
+		   (format out "~a" "X")
+		   (format out "~a"
+			   (elt spark-chars
+				(floor (/ (- elem min)
+					  (/
+					   (- max min)
+					   (- (length spark-chars) 1)))))))))
        min max))))
 
 
