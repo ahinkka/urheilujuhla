@@ -2,6 +2,7 @@
   :depends-on (#:bordeaux-threads
 	       #:flexi-streams
 	       #:babel
+	       #:lift
 
 	       #:object-system
 	       #:cl-irc
@@ -11,4 +12,5 @@
 
 	       #:fmi-observations
 	       #:local-time)
-  :components ((:file "urheilujuhla")))
+  :components ((:file "urheilujuhla")
+	       (:file "tests")))
