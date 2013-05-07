@@ -2,9 +2,9 @@
   :depends-on (#:bordeaux-threads
 	       #:flexi-streams
 	       #:babel
-	       #:lift
 
 	       #:object-system
+	       #:lift
 	       #:cl-irc
 
 	       #:com.dvlsoft.clon

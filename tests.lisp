@@ -1,6 +1,6 @@
 (defpackage #:urheilujuhla-tests
   (:use #:common-lisp #:urheilujuhla #:lift)
-  (:export #:run))
+  (:export #:run-tests))
 
 (in-package :urheilujuhla-tests)
 
