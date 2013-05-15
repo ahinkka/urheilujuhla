@@ -371,8 +371,11 @@
 	 (stropt :long-name "irc-channels"))
   (group (:header "SWANK settings:")
 	 (switch :long-name "enable-swank"
-	       :description "Enable SWANK (for development)")
-	 (stropt :long-name "swank-port")))
+		 :description "Enable SWANK (for development)")
+	 (stropt :long-name "swank-port"))
+  (group (:header "FMI API settings:")
+	 (stropt :long-name "fmi-api-key"
+		 :description "API-key for FMI API (required)")))
 
 (defun main ()
   (com.dvlsoft.clon:make-context)
@@ -402,6 +405,17 @@
       (force-output *error-output*)
       (com.dvlsoft.clon:help)
       (com.dvlsoft.clon:exit))
+
+    (let ((api-key (com.dvlsoft.clon:getopt :long-name "fmi-api-key")))
+      (when (eq nil api-key)
+	(format *error-output* "FMI API-key required!~%")
+
+	(force-output *error-output*)
+	(com.dvlsoft.clon:help)
+	(com.dvlsoft.clon:exit))
+
+      (format *error-output* ";; Using ~A as FMI API-key.~%" api-key)
+      (setf fmi-observations:*api-key* api-key))
 
     (if (com.dvlsoft.clon:getopt :long-name "enable-swank")
 	(progn
