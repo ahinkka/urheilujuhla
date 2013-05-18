@@ -28,10 +28,25 @@
 ;;;
 ;;; IRC
 ;;;
+(define-condition irc-connection-error (error)
+  ((description :initarg :description :reader description)))
+
 (defun handle-irc-privmsg (message)
   (bt:with-lock-held (*queue-lock*)
     (push message *from-irc*)
     (bt:condition-notify *queues-updated*)))
+
+(defun handle-irc-error (message)
+  (format *error-output* ";; In HANDLE-IRC-ERROR~%")
+  (describe message *error-output*)
+  (force-output *error-output*)
+
+  (with-slots (arguments) message
+    (let ((message-proper (second arguments)))
+      (when (search "ping timeout" (string-downcase message-proper))
+	(format *error-output* ";; Ping timeout detected; signaling an error to re-establish connection.")
+	(force-output *error-output*)
+	(error 'irc-connection-error :description "Ping timeout")))))
 
 (defun connect-to-irc-server (host port nick username realname)
   (setf *irc-connection* (irc:connect :server host :port port :nickname nick
@@ -40,6 +55,7 @@
     (remove-hooks *irc-connection* 'irc-privmsg-message))
   
   (add-hook *irc-connection* 'irc-privmsg-message #'handle-irc-privmsg)
+  (add-hook *irc-connection* 'irc-error-message #'handle-irc-error)
 
   (dolist (channel *irc-channels*)
     (format *error-output* ";; Joining channel ~A~%" channel)
@@ -54,6 +70,8 @@
   (loop do
        (handler-case
 	   (connect-to-irc-server host port nick username realname)
+	 (irc-connection-error (err)
+	   (format *error-output* ";; Connection failed due to: ~A~%" err))
 	 (usocket:socket-error (err)
 	   (format *error-output* ";; Connection failed due to network issue: ~A~%" err)))
 
