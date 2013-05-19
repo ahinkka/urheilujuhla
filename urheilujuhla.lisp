@@ -307,7 +307,7 @@
 			   (minutes-ago (fmi-observations:observation-time item))))
 		      (subseq sorted 0 5))))))
 
-(defun formatted-top-temperatures ()
+(defun formatted-bottom-temperatures ()
   (let
       ((observations (fmi-observations:observations :bbox '((:min-lat . 60) (:min-lon . 20) (:max-lat . 70) (:max-lon . 30))))
        (stations (make-hash-table :test 'equal))
@@ -342,7 +342,7 @@
 
     (when (not (eq nil observations))
       (let ((region (fmi-observations:station-region (car observations)))
-	    (location (fmi-observations:station-loctaion (car observations))))
+	    (location (fmi-observations:station-location (car observations))))
       (return-from formatted-weather (format-short-text region location observations "FMI")))))
 
   (let*
