@@ -280,6 +280,59 @@
 
       (car (last nearest)))))
 
+(defun formatted-top-temperatures ()
+  (let
+      ((observations (fmi-observations:observations :bbox '((:min-lat . 60) (:min-lon . 20) (:max-lat . 70) (:max-lon . 30))))
+       (stations (make-hash-table :test 'equal))
+       (latest-non-nil))
+		    
+    (iter (for item in observations)
+	  (push item
+		(gethash (format nil "~A-~A"
+				 (fmi-observations:station-region item)
+				 (fmi-observations:station-location item)) stations)))
+
+    (iter (for (key value) in-hashtable stations)
+	  (push (car (sort (remove-if #'null value :key 'fmi-observations:temperature)
+			   #'local-time:timestamp> :key 'fmi-observations:observation-time)) latest-non-nil))
+    
+    (let ((sorted (sort (remove-if #'null latest-non-nil) #'> :key 'fmi-observations:temperature)))
+
+      (format nil "~{~{~A, ~A: ~A°C (-~A min.)~}~^; ~}"
+	      (mapcar #'(lambda (item)
+			  (list
+			   (fmi-observations:station-region item)
+			   (fmi-observations:station-location item)
+			   (fmi-observations:temperature item)
+			   (minutes-ago (fmi-observations:observation-time item))))
+		      (subseq sorted 0 5))))))
+
+(defun formatted-top-temperatures ()
+  (let
+      ((observations (fmi-observations:observations :bbox '((:min-lat . 60) (:min-lon . 20) (:max-lat . 70) (:max-lon . 30))))
+       (stations (make-hash-table :test 'equal))
+       (latest-non-nil))
+		    
+    (iter (for item in observations)
+	  (push item
+		(gethash (format nil "~A-~A"
+				 (fmi-observations:station-region item)
+				 (fmi-observations:station-location item)) stations)))
+
+    (iter (for (key value) in-hashtable stations)
+	  (push (car (sort (remove-if #'null value :key 'fmi-observations:temperature)
+			   #'local-time:timestamp> :key 'fmi-observations:observation-time)) latest-non-nil))
+    
+    (let ((sorted (sort (remove-if #'null latest-non-nil) #'< :key 'fmi-observations:temperature)))
+
+      (format nil "~{~{~A, ~A: ~A°C (-~A min.)~}~^; ~}"
+	      (mapcar #'(lambda (item)
+			  (list
+			   (fmi-observations:station-region item)
+			   (fmi-observations:station-location item)
+			   (fmi-observations:temperature item)
+			   (minutes-ago (fmi-observations:observation-time item))))
+		      (subseq sorted 0 5))))))
 
 (defun formatted-weather (place-name)
   (when (eq nil place-name)
@@ -289,7 +342,7 @@
 
     (when (not (eq nil observations))
       (let ((region (fmi-observations:station-region (car observations)))
-	    (location (fmi-observations:station-location (car observations))))
+	    (location (fmi-observations:station-loctaion (car observations))))
       (return-from formatted-weather (format-short-text region location observations "FMI")))))
 
   (let*
@@ -357,6 +410,28 @@
 	   (handler-case (setf message (formatted-weather rest-words))
 	     (error (e)
 	       (format *error-output* "Failed to get formatted weather for ~a (~a)" rest-words e)
+	       (setf message (format nil "~a" e))))
+
+	   (bt:with-lock-held (*queue-lock*)
+	     (if from-person
+		 (push (list source message) *to-irc*)
+		 (push (list from-channel (format nil "~A, ~A" source message)) *to-irc*)))))
+	((string= first-word "TOP")
+	 (let ((message nil))
+	   (handler-case (setf message (formatted-top-temperatures))
+	     (error (e)
+	       (format *error-output* "Failed to get top temperatures: ~A" e)
+	       (setf message (format nil "~a" e))))
+
+	   (bt:with-lock-held (*queue-lock*)
+	     (if from-person
+		 (push (list source message) *to-irc*)
+		 (push (list from-channel (format nil "~A, ~A" source message)) *to-irc*)))))
+	((string= first-word "BOTTOM")
+	 (let ((message nil))
+	   (handler-case (setf message (formatted-bottom-temperatures))
+	     (error (e)
+	       (format *error-output* "Failed to get bottom temperatures: ~A" e)
 	       (setf message (format nil "~a" e))))
 
 	   (bt:with-lock-held (*queue-lock*)
