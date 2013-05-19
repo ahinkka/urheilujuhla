@@ -285,11 +285,12 @@
   (when (eq nil place-name)
     (return-from formatted-weather "Paikan nimi vaaditaan."))
 
-  (multiple-value-bind (observations region location)
-      (fmi-observations:observations place-name)
+  (let ((observations (fmi-observations:observations :place-name place-name)))
 
     (when (not (eq nil observations))
-      (return-from formatted-weather (format-short-text region location observations "FMI"))))
+      (let ((region (fmi-observations:station-region (car observations)))
+	    (location (fmi-observations:station-location (car observations))))
+      (return-from formatted-weather (format-short-text region location observations "FMI")))))
 
   (let*
       ((place (first (resolve-place-name-coordinates place-name)))
@@ -299,10 +300,12 @@
     (when (eq lat nil)
       (return-from formatted-weather (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name)))
 
-    (multiple-value-bind (observations region location)
-	(fmi-observations:station-observations (nearest-weather-station-id lat lon))
-      (when (not (eq nil region))
-	(return-from formatted-weather (format-short-text region location observations "Paikkis")))))
+    (let
+	((observations (fmi-observations:observations :station-fmisid (nearest-weather-station-id lat lon))))
+      (when (not (eq nil observations))
+	(let ((region (fmi-observations:station-region (car observations)))
+	      (location (fmi-observations:station-location (car observations))))
+	(return-from formatted-weather (format-short-text region location observations "Paikkis"))))))
   ;; (format nil "Paikkaa ~A ei löytynyt." place-name))))
   "?¡")
 
@@ -310,11 +313,11 @@
   (when (eq nil place-name)
     (return-from formatted-wind "Paikan nimi vaaditaan."))
 
-  (multiple-value-bind (observations region location)
-      (fmi-observations:observations place-name)
-
+  (let ((observations (fmi-observations:observations :place-name place-name)))
     (when (not (eq nil observations))
-      (return-from formatted-wind (format-wind-short-text region location observations "FMI"))))
+      (let ((region (fmi-observations:station-region (car observations)))
+	    (location (fmi-observations:station-location (car observations))))
+      (return-from formatted-wind (format-wind-short-text region location observations "FMI")))))
 
   (let*
       ((place (first (resolve-place-name-coordinates place-name)))
@@ -324,10 +327,11 @@
     (when (eq lat nil)
       (return-from formatted-wind (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name)))
 
-    (multiple-value-bind (observations region location)
-	(fmi-observations:station-observations (nearest-weather-station-id lat lon))
-      (when (not (eq nil region))
-	(return-from formatted-wind (format-wind-short-text region location observations "Paikkis")))))
+    (let ((observations (fmi-observations:observations :station-fmisid (nearest-weather-station-id lat lon))))
+      (when (not (eq nil observations))
+	(let ((region (fmi-observations:station-region (car observations)))
+	      (location (fmi-observations:station-location (car observations))))
+	(return-from formatted-wind (format-wind-short-text region location observations "Paikkis"))))))
   ;; (format nil "Paikkaa ~A ei löytynyt." place-name))))
   "?¡")
 
