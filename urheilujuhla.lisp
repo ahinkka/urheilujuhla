@@ -237,6 +237,24 @@
 		      (minutes-ago (fmi-observations:observation-time last-observation)))
 	      location-source))))
 
+(defun format-wind-gusts-short-text (region location observations location-source)
+  (let* ((item-count (length observations))
+	 (last-observation (car (last observations)))
+	 (last-twentyfour (if (> (length observations) 23)
+			      (subseq observations (- item-count 24))
+			      observations))
+	 (twentyfour-observations (mapcar #'fmi-observations:wind-gusts last-twentyfour))
+	 (twentyfour-directions (mapcar #'fmi-observations:wind-direction last-twentyfour))
+	 (directions-line (directions-line twentyfour-directions)))
+    (multiple-value-bind (sparkline min max)
+	(sparkline twentyfour-observations)
+      (format nil "~A, ~A: [~A, ~A] ~A; ~A; ~A (~A)." region location min max sparkline directions-line
+	      (format nil "~A m/s, ~A° (-~A min.)"
+		      (fmi-observations:wind-gusts last-observation)
+		      (fmi-observations:wind-direction last-observation)
+		      (minutes-ago (fmi-observations:observation-time last-observation)))
+	      location-source))))
+
 (defun resolve-place-name-coordinates (place-name)
   (let ((place place-name)
 	(municipality nil))
@@ -367,6 +385,32 @@
   ;; (format nil "Paikkaa ~A ei löytynyt." place-name))))
   "?¡")
 
+(defun formatted-gusts (place-name)
+  (when (eq nil place-name)
+    (return-from formatted-gusts "Paikan nimi vaaditaan."))
+
+  (let ((observations (fmi-observations:observations :place-name place-name)))
+    (when (not (eq nil observations))
+      (let ((region (fmi-observations:station-region (car observations)))
+	    (location (fmi-observations:station-location (car observations))))
+      (return-from formatted-gusts (format-wind-gusts-short-text region location observations "FMI")))))
+
+  (let*
+      ((place (first (resolve-place-name-coordinates place-name)))
+       (lat (cdr (assoc :lat place)))
+       (lon (cdr (assoc :lon place))))
+
+    (when (eq lat nil)
+      (return-from formatted-gusts (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name)))
+
+    (let ((observations (fmi-observations:observations :station-fmisid (nearest-weather-station-id lat lon))))
+      (when (not (eq nil observations))
+	(let ((region (fmi-observations:station-region (car observations)))
+	      (location (fmi-observations:station-location (car observations))))
+	(return-from formatted-gusts (format-wind-gusts-short-text region location observations "Paikkis"))))))
+  ;; (format nil "Paikkaa ~A ei löytynyt." place-name))))
+  "?¡")
+
 (defun handle-irc-message (message)
   (with-slots (source arguments) message
     (let* ((from-channel (if (cl-ppcre:all-matches "^[#\!].*$" (first arguments)) 
@@ -422,6 +466,17 @@
 	   (handler-case (setf message (formatted-wind rest-words))
 	     (error (e)
 	       (format *error-output* "Failed to get formatted wind for ~a (~a)" rest-words e)
+	       (setf message (format nil "~a" e))))
+
+	   (bt:with-lock-held (*queue-lock*)
+	     (if from-person
+		 (push (list source message) *to-irc*)
+		 (push (list from-channel (format nil "~A, ~A" source message)) *to-irc*)))))
+	((string= first-word "PUUSKAT")
+	 (let ((message nil))
+	   (handler-case (setf message (formatted-gusts rest-words))
+	     (error (e)
+	       (format *error-output* "Failed to get wind gusts for ~a (~a)" rest-words e)
 	       (setf message (format nil "~a" e))))
 
 	   (bt:with-lock-held (*queue-lock*)
