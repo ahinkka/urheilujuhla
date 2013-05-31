@@ -433,7 +433,8 @@
 	   (handler-case (setf message (formatted-weather rest-words))
 	     (error (e)
 	       (format *error-output* "Failed to get formatted weather for ~a (~a)" rest-words e)
-	       (setf message (format nil "~a" e))))
+	       (describe e)
+	       (setf message (format nil "Virhe: ~a" (class-of e)))))
 
 	   (bt:with-lock-held (*queue-lock*)
 	     (if from-person
@@ -444,7 +445,7 @@
 	   (handler-case (setf message (formatted-top-temperatures))
 	     (error (e)
 	       (format *error-output* "Failed to get top temperatures: ~A" e)
-	       (setf message (format nil "~a" e))))
+	       (setf message (format nil "Virhe: ~a" (class-of e)))))
 
 	   (bt:with-lock-held (*queue-lock*)
 	     (if from-person
@@ -455,7 +456,7 @@
 	   (handler-case (setf message (formatted-top-temperatures :bottom t))
 	     (error (e)
 	       (format *error-output* "Failed to get bottom temperatures: ~A" e)
-	       (setf message (format nil "~a" e))))
+	       (setf message (format nil "Virhe: ~a" (class-of e)))))
 
 	   (bt:with-lock-held (*queue-lock*)
 	     (if from-person
@@ -466,7 +467,7 @@
 	   (handler-case (setf message (formatted-wind rest-words))
 	     (error (e)
 	       (format *error-output* "Failed to get formatted wind for ~a (~a)" rest-words e)
-	       (setf message (format nil "~a" e))))
+	       (setf message (format nil "Virhe: ~a" (class-of e)))))
 
 	   (bt:with-lock-held (*queue-lock*)
 	     (if from-person
@@ -477,7 +478,7 @@
 	   (handler-case (setf message (formatted-gusts rest-words))
 	     (error (e)
 	       (format *error-output* "Failed to get wind gusts for ~a (~a)" rest-words e)
-	       (setf message (format nil "~a" e))))
+	       (setf message (format nil "Virhe: ~a" (class-of e)))))
 
 	   (bt:with-lock-held (*queue-lock*)
 	     (if from-person
