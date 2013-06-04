@@ -427,63 +427,34 @@
 								 message-proper)
 						    :limit 2)))))
 
-      (cond
-	((string= first-word "SÄÄ")
-	 (let ((message nil))
-	   (handler-case (setf message (formatted-weather rest-words))
-	     (error (e)
-	       (format *error-output* "Failed to get formatted weather for ~a (~a)" rest-words e)
-	       (describe e)
-	       (setf message (format nil "Virhe: ~a" (class-of e)))))
+      (flet
+	  ((handle-call (stimulus-function &optional args)
+	     (handler-case (if args
+			       (funcall stimulus-function args)
+			       (funcall stimulus-function))
+	       (error (e)
+		(format *error-output* "Failed to respond to stimulus for ~a (~a)" args e)
+		(format nil "Virhe: ~a" (class-of e))))))
+	       
 
-	   (bt:with-lock-held (*queue-lock*)
-	     (if from-person
-		 (push (list source message) *to-irc*)
-		 (push (list from-channel (format nil "~A, ~A" source message)) *to-irc*)))))
-	((string= first-word "TOP")
-	 (let ((message nil))
-	   (handler-case (setf message (formatted-top-temperatures))
-	     (error (e)
-	       (format *error-output* "Failed to get top temperatures: ~A" e)
-	       (setf message (format nil "Virhe: ~a" (class-of e)))))
+	(let ((message 
+	       (cond
+		 ((string= first-word "SÄÄ")
+		  (handle-call #'formatted-weather rest-words))
+		 ((string= first-word "TOP")
+		  (handle-call #'formatted-top-temperatures))
+		 ((string= first-word "BOTTOM")
+		  (handle-call #'(lambda () (formatted-top-temperatures :bottom t))))
+		 ((string= first-word "TUULI")
+		  (handle-call #'formatted-wind rest-words))
+		 ((string= first-word "PUUSKAT")
+		  (handle-call #'formatted-gusts rest-words)))))
 
-	   (bt:with-lock-held (*queue-lock*)
-	     (if from-person
-		 (push (list source message) *to-irc*)
-		 (push (list from-channel (format nil "~A, ~A" source message)) *to-irc*)))))
-	((string= first-word "BOTTOM")
-	 (let ((message nil))
-	   (handler-case (setf message (formatted-top-temperatures :bottom t))
-	     (error (e)
-	       (format *error-output* "Failed to get bottom temperatures: ~A" e)
-	       (setf message (format nil "Virhe: ~a" (class-of e)))))
-
-	   (bt:with-lock-held (*queue-lock*)
-	     (if from-person
-		 (push (list source message) *to-irc*)
-		 (push (list from-channel (format nil "~A, ~A" source message)) *to-irc*)))))
-	((string= first-word "TUULI")
-	 (let ((message nil))
-	   (handler-case (setf message (formatted-wind rest-words))
-	     (error (e)
-	       (format *error-output* "Failed to get formatted wind for ~a (~a)" rest-words e)
-	       (setf message (format nil "Virhe: ~a" (class-of e)))))
-
-	   (bt:with-lock-held (*queue-lock*)
-	     (if from-person
-		 (push (list source message) *to-irc*)
-		 (push (list from-channel (format nil "~A, ~A" source message)) *to-irc*)))))
-	((string= first-word "PUUSKAT")
-	 (let ((message nil))
-	   (handler-case (setf message (formatted-gusts rest-words))
-	     (error (e)
-	       (format *error-output* "Failed to get wind gusts for ~a (~a)" rest-words e)
-	       (setf message (format nil "Virhe: ~a" (class-of e)))))
-
-	   (bt:with-lock-held (*queue-lock*)
-	     (if from-person
-		 (push (list source message) *to-irc*)
-		 (push (list from-channel (format nil "~A, ~A" source message)) *to-irc*)))))))))
+	  (unless (null message)
+	    (bt:with-lock-held (*queue-lock*)
+	      (if from-person
+		  (push (list source message) *to-irc*)
+		  (push (list from-channel (format nil "~A, ~A" source message)) *to-irc*)))))))))
 
 
 ;;;
