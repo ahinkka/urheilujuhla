@@ -42,7 +42,7 @@
   (force-output *error-output*)
 
   (with-slots (arguments) message
-    (let ((message-proper (second arguments)))
+    (let ((message-proper (car arguments)))
       (when (search "ping timeout" (string-downcase message-proper))
 	(format *error-output* ";; Ping timeout detected; signaling an error to re-establish connection.")
 	(force-output *error-output*)
