@@ -1,6 +1,6 @@
 (defpackage #:urheilujuhla-tests
   (:use #:common-lisp #:urheilujuhla #:lift)
-  (:export #:run-tests))
+  (:export #:run-tests #:run-tests-non-interactive))
 
 (in-package :urheilujuhla-tests)
 
@@ -11,7 +11,12 @@
 
    (expected-nil-output "▁X▅█")
    (nil-in-list '(1 nil 3 4))
-   (nil-in-vector #(1 nil 3 4)))
+   (nil-in-vector #(1 nil 3 4))
+
+   (expected-all-nil-output "N/A")
+   (all-nil-list '(nil nil nil nil))
+   (all-nil-vector #(nil nil nil nil)))
+   
   (:equality-test #'string-equal))
 
 
@@ -32,3 +37,28 @@
 (addtest (sparkline) nil-in-vector
   (ensure-same (urheilujuhla::sparkline nil-in-vector)
 	       expected-nil-output))
+
+;; All nils
+(addtest (sparkline) all-nil-list
+  (ensure-same (urheilujuhla::sparkline all-nil-list)
+	       expected-all-nil-output))
+
+(addtest (sparkline) all-nil-vector
+  (ensure-same (urheilujuhla::sparkline all-nil-vector)
+	       expected-all-nil-output))
+
+
+(defun run-tests-non-interactive ()
+  (run-tests)
+  (terpri)
+  (format t "~a~%" lift:*test-result*)
+
+  (when
+      (or 
+       (not (null (lift:failures lift:*test-result*)))
+       (not (null (lift:errors lift:*test-result*))))
+    (describe (lift:failures lift:*test-result*))
+    (describe (lift:errors lift:*test-result*))
+    (error "Test failures or errors encountered."))
+
+  lift:*test-result*)
