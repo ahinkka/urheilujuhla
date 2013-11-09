@@ -154,27 +154,32 @@
 
 ;; Simple textual Unicode sparklines in Common Lisp;
 ;;  see <http://www.edwardtufte.com/bboard/q-and-a-fetch-msg?msg_id=0001OR"> for reference.
+(defvar *spark-chars* #(#\▁ #\▂ #\▃ #\▄ #\▅ #\▆ #\▇ #\█))
 (defun sparkline (seq)
   (flet ((apply-to-numbers (seq comparator)
 	   (iter (for elem in-sequence seq)
 		 (when (numberp elem)
 		   (collect elem into numbers))
-		 (finally (return (apply comparator numbers))))))
-    (let ((min (apply-to-numbers seq #'min))
-	  (max (apply-to-numbers seq #'max))
-	  (spark-chars #(#\▁ #\▂ #\▃ #\▄ #\▅ #\▆ #\▇ #\█)))
-      (values
-       (with-output-to-string (out)
-	 (iter (for elem in-sequence seq)
-	       (if (not (numberp elem))
-		   (format out "~a" "X")
-		   (format out "~a"
-			   (elt spark-chars
-				(floor (/ (- elem min)
-					  (/
-					   (- max min)
-					   (- (length spark-chars) 1)))))))))
-       min max))))
+		 (finally (return (apply comparator numbers)))))
+
+	 (format-values (seq min max)
+	   (with-output-to-string (out)
+	     (iter (for elem in-sequence seq)
+		   (if (not (numberp elem))
+		       (format out "~a" "X")
+		       (format out "~a"
+			       (elt *spark-chars*
+				    (floor (/ (- elem min)
+					      (/
+					       (- max min)
+					       (- (length *spark-chars*) 1)))))))))))
+    (if (= (length seq)
+	   (count nil seq :test #'eq))
+	(values "N/A" "N/A" "N/A")
+	(let ((min (apply-to-numbers seq #'min))
+	      (max (apply-to-numbers seq #'max)))
+	  (values
+	   (format-values seq min max) min max)))))
 
 
 (defun directions-line (seq)
