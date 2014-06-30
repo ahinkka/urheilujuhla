@@ -43,10 +43,15 @@
 
   (with-slots (arguments) message
     (let ((message-proper (car arguments)))
-      (when (search "ping timeout" (string-downcase message-proper))
-	(format *error-output* ";; Ping timeout detected; signaling an error to re-establish connection.")
+      (when 
+	  (or
+	   (search "ping timeout" (string-downcase message-proper))
+	   (search "closing link" (string-downcase message-proper)))
+	(format *error-output*
+		";; Error with message ~A detected; signaling an error to re-establish connection."
+		message-proper)
 	(force-output *error-output*)
-	(error 'irc-connection-error :description "Ping timeout")))))
+	(error 'irc-connection-error :description message-proper)))))
 
 (defun connect-to-irc-server (host port nick username realname)
   (setf *irc-connection* (irc:connect :server host :port port :nickname nick
