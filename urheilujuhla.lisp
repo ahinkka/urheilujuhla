@@ -317,7 +317,9 @@
   (let
       ((comparator
 	(if bottom #'< #'>))
-       (observations (fmi-observations:observations :bbox '((:min-lat . 60) (:min-lon . 20) (:max-lat . 70) (:max-lon . 30))))
+       (observations (fmi-observations:observations
+		      :bbox '((:min-lat . 60) (:min-lon . 20) (:max-lat . 70) (:max-lon . 30))
+		      :time-step 1))
        (stations (make-hash-table :test 'equal))
        (latest-non-nil))
 		    
