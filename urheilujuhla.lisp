@@ -370,7 +370,7 @@
     (let* ((stations (sort (remove-if #'null latest-non-nil) #'< :key 'fmi-observations:temperature))
 	   (station-count (length stations))
 	   (median (floor (/ station-count 2)))
-	   (start (max 0 (- median (floor (/ count 2)))))
+	   (start (max 0 (- median (ceiling (/ count 2)))))
 	   (end (min (- station-count 1) (+ median (floor (/ count 2)))))
 	   (out 
 	    (subseq stations start end)))
