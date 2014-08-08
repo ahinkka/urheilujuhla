@@ -47,9 +47,14 @@
 	  (or
 	   (search "ping timeout" (string-downcase message-proper))
 	   (search "closing link" (string-downcase message-proper)))
-	(format *error-output*
-		";; Error with message ~A detected; signaling an error to re-establish connection."
-		message-proper)
+	(format *error-output* ";; Error with message ~A detected.~%" message-proper)
+	(force-output *error-output*)
+
+	(format *error-output* ";; Quitting the IRC connection ~A.~%" *irc-connection*)
+	(force-output *error-output*)
+	(irc:quit *irc-connection*)
+
+	(format *error-output* ";; Signaling an error to re-establish connection.~%")
 	(force-output *error-output*)
 	(error 'irc-connection-error :description message-proper)))))
 
