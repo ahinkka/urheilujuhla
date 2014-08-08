@@ -348,6 +348,42 @@
 			   (minutes-ago (fmi-observations:observation-time item))))
 	      out)))))
 
+(defun formatted-median (&key (count 5))
+  (let
+      ((observations (fmi-observations:observations
+		      :bbox '((:min-lat . 60) (:min-lon . 20) (:max-lat . 70) (:max-lon . 30))
+		      :time-step 1))
+       (stations (make-hash-table :test 'equal))
+       (latest-non-nil))
+		    
+    (iter (for item in observations)
+	  (push item
+		(gethash (format nil "~A-~A"
+				 (fmi-observations:station-region item)
+				 (fmi-observations:station-location item)) stations)))
+
+    (iter (for (key value) in-hashtable stations)
+	  (push (car (sort (remove-if #'null value :key 'fmi-observations:temperature)
+			   #'local-time:timestamp> :key 'fmi-observations:observation-time))
+		latest-non-nil))
+    
+    (let* ((stations (sort (remove-if #'null latest-non-nil) #'< :key 'fmi-observations:temperature))
+	   (station-count (length stations))
+	   (median (floor (/ station-count 2)))
+	   (start (max 0 (- median (floor (/ count 2)))))
+	   (end (min (- station-count 1) (+ median (floor (/ count 2)))))
+	   (out 
+	    (subseq stations start end)))
+
+      (format nil "~{~{~A, ~A: ~A°C (-~A min.)~}~^; ~}"
+	      (mapcar #'(lambda (item)
+			  (list
+			   (fmi-observations:station-region item)
+			   (fmi-observations:station-location item)
+			   (fmi-observations:temperature item)
+			   (minutes-ago (fmi-observations:observation-time item))))
+	      out)))))
+
 (defun formatted-weather (place-name)
   (when (eq nil place-name)
     (return-from formatted-weather "Paikan nimi vaaditaan."))
@@ -460,6 +496,8 @@
 		  (handle-call #'formatted-weather rest-words))
 		 ((string= first-word "TOP")
 		  (handle-call #'formatted-top-temperatures))
+		 ((string= first-word "MEDIAN")
+		  (handle-call #'formatted-median))
 		 ((string= first-word "BOTTOM")
 		  (handle-call #'(lambda () (formatted-top-temperatures :bottom t))))
 		 ((string= first-word "TUULI")
