@@ -25,6 +25,9 @@
 (defvar *from-object-system* '())
 (defvar *to-object-system* '())
 
+;; Will contain an alist from (lat lon) => fmisid as string
+(defvar *location-to-fmisid* '())
+
 ;;;
 ;;; IRC
 ;;;
@@ -209,8 +212,17 @@
     (format nil "~{~A~}"
      (map 'list (alexandria:compose #'direction-symbol #'direction-number) seq))))
 
-(defun format-last-observation (region location observations)
-  (format nil "~A, ~A: ~A @ ~A" region location
+(defun format-station-place-name (observation)
+  (let* ((station (fmi-observations:station observation))
+	 (name (fmi-observations:station-name station))
+	 (region (fmi-observations:station-region station)))
+    (if (= 0 (search region name :test #'char=))
+	(format nil "~A, ~A" (subseq name (+ (length region) 1)) region)
+	(format nil "~A, ~A" name region))))
+
+(defun format-last-observation (observations)
+  (format nil "~A: ~A @ ~A"
+	  (format-station-place-name (first observations))
 	  (cadar (last observations))
 	  (local-time:format-timestring nil (caar (last observations)) :format +date-format+)))
 
@@ -218,7 +230,7 @@
   (round (/ (float (- (local-time:timestamp-to-universal (local-time:now))
 		      (local-time:timestamp-to-universal timestamp))) 60)))
 
-(defun format-short-text (region location observations location-source)
+(defun format-short-text (observations location-source)
   (let* ((item-count (length observations))
 	 (last-observation (last observations))
 	 (last-twentyfour (if (> (length observations) 23)
@@ -227,14 +239,15 @@
 	 (twentyfour-observations (mapcar #'fmi-observations:temperature last-twentyfour)))
     (multiple-value-bind (sparkline min max)
 	(sparkline twentyfour-observations)
-      (format nil "~A, ~A: [~A, ~A] ~A; ~A (~A)." region location min max sparkline
+      (format nil "~A: [~A, ~A] ~A; ~A (~A)."
+	      (format-station-place-name (first observations)) min max sparkline
 	      (format nil "~{~{~A°C (-~A min.)~}~^, ~}"
 		      (mapcar #'(lambda (item)
 				  (list (fmi-observations:temperature item)
 					(minutes-ago (fmi-observations:observation-time item))))
 			      last-observation)) location-source))))
 
-(defun format-wind-short-text (region location observations location-source)
+(defun format-wind-short-text (observations location-source)
   (let* ((item-count (length observations))
 	 (last-observation (car (last observations)))
 	 (last-twentyfour (if (> (length observations) 23)
@@ -245,14 +258,16 @@
 	 (directions-line (directions-line twentyfour-directions)))
     (multiple-value-bind (sparkline min max)
 	(sparkline twentyfour-observations)
-      (format nil "~A, ~A: [~A, ~A] ~A; ~A; ~A (~A)." region location min max sparkline directions-line
+      (format nil "~A: [~A, ~A] ~A; ~A; ~A (~A)."
+	      (format-station-place-name (first observations))
+	      min max sparkline directions-line
 	      (format nil "~A m/s, ~A° (-~A min.)"
 		      (fmi-observations:windspeed last-observation)
 		      (fmi-observations:wind-direction last-observation)
 		      (minutes-ago (fmi-observations:observation-time last-observation)))
 	      location-source))))
 
-(defun format-wind-gusts-short-text (region location observations location-source)
+(defun format-wind-gusts-short-text (observations location-source)
   (let* ((item-count (length observations))
 	 (last-observation (car (last observations)))
 	 (last-twentyfour (if (> (length observations) 23)
@@ -263,7 +278,9 @@
 	 (directions-line (directions-line twentyfour-directions)))
     (multiple-value-bind (sparkline min max)
 	(sparkline twentyfour-observations)
-      (format nil "~A, ~A: [~A, ~A] ~A; ~A; ~A (~A)." region location min max sparkline directions-line
+      (format nil "~A: [~A, ~A] ~A; ~A; ~A (~A)."
+	      (format-station-place-name (first observations))
+	      min max sparkline directions-line
 	      (format nil "~A m/s, ~A° (-~A min.)"
 		      (fmi-observations:wind-gusts last-observation)
 		      (fmi-observations:wind-direction last-observation)
@@ -302,7 +319,7 @@
 		    (* (abs (- lat1 lat2)) (abs (- lat1 lat2)))
 		    (* (abs (- lon1 lon2)) (abs (- lon1 lon2)))))))
 
-      (dolist (item fmi-observations:*location-to-fmisid*)
+      (dolist (item *location-to-fmisid*)
 	(let ((dist (distance (caar item) (cadar item) lat lon)))
 	  (when (or
 		 (eq nearest nil)
@@ -318,16 +335,17 @@
       ((comparator
 	(if bottom #'< #'>))
        (observations (fmi-observations:observations
-		      :bbox '((:min-lat . 60) (:min-lon . 20) (:max-lat . 70) (:max-lon . 30))
-		      :time-step 1))
+		      (fmi-observations:make-bbox-criterion 20 60 30 70)
+		      :time-step 1 :time-step-count 1))
        (stations (make-hash-table :test 'equal))
        (latest-non-nil))
 		    
     (iter (for item in observations)
 	  (push item
 		(gethash (format nil "~A-~A"
-				 (fmi-observations:station-region item)
-				 (fmi-observations:station-location item)) stations)))
+				 (fmi-observations:station-region (fmi-observations:station item))
+				 (fmi-observations:station-name (fmi-observations:station item)))
+			 stations)))
 
     (iter (for (key value) in-hashtable stations)
 	  (push (car (sort (remove-if #'null value :key 'fmi-observations:temperature)
@@ -339,11 +357,10 @@
 	    (sort (remove-if #'null latest-non-nil) comparator :key 'fmi-observations:temperature)
 	    0 count)))
 
-      (format nil "~{~{~A, ~A: ~A°C (-~A min.)~}~^; ~}"
+      (format nil "~{~{~A: ~A°C (-~A min.)~}~^; ~}"
 	      (mapcar #'(lambda (item)
 			  (list
-			   (fmi-observations:station-region item)
-			   (fmi-observations:station-location item)
+			   (format-station-place-name item)
 			   (fmi-observations:temperature item)
 			   (minutes-ago (fmi-observations:observation-time item))))
 	      out)))))
@@ -351,16 +368,16 @@
 (defun formatted-median (&key (count 5))
   (let
       ((observations (fmi-observations:observations
-		      :bbox '((:min-lat . 60) (:min-lon . 20) (:max-lat . 70) (:max-lon . 30))
-		      :time-step 1))
+		      (fmi-observations:make-bbox-criterion 20 60 30 70)
+		      :time-step 1 :time-step-count 1))
        (stations (make-hash-table :test 'equal))
        (latest-non-nil))
 		    
     (iter (for item in observations)
 	  (push item
 		(gethash (format nil "~A-~A"
-				 (fmi-observations:station-region item)
-				 (fmi-observations:station-location item)) stations)))
+				 (fmi-observations:station-region (fmi-observations:station item))
+				 (fmi-observations:station-name (fmi-observations:station item))) stations)))
 
     (iter (for (key value) in-hashtable stations)
 	  (push (car (sort (remove-if #'null value :key 'fmi-observations:temperature)
@@ -375,11 +392,10 @@
 	   (out 
 	    (subseq stations start end)))
 
-      (format nil "~{~{~A, ~A: ~A°C (-~A min.)~}~^; ~}"
+      (format nil "~{~{~A: ~A°C (-~A min.)~}~^; ~}"
 	      (mapcar #'(lambda (item)
 			  (list
-			   (fmi-observations:station-region item)
-			   (fmi-observations:station-location item)
+			   (format-station-place-name item)
 			   (fmi-observations:temperature item)
 			   (minutes-ago (fmi-observations:observation-time item))))
 	      out)))))
@@ -388,12 +404,10 @@
   (when (eq nil place-name)
     (return-from formatted-weather "Paikan nimi vaaditaan."))
 
-  (let ((observations (fmi-observations:observations :place-name place-name)))
-
-    (when (not (eq nil observations))
-      (let ((region (fmi-observations:station-region (car observations)))
-	    (location (fmi-observations:station-location (car observations))))
-      (return-from formatted-weather (format-short-text region location observations "FMI")))))
+  (handler-case
+      (let ((observations (fmi-observations:observations (fmi-observations:make-place-name-criterion place-name))))
+	(return-from formatted-weather (format-short-text observations "FMI")))
+    (fmi-observations:no-stations-error ()))
 
   (let*
       ((place (first (resolve-place-name-coordinates place-name)))
@@ -403,24 +417,21 @@
     (when (eq lat nil)
       (return-from formatted-weather (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name)))
 
-    (let
-	((observations (fmi-observations:observations :station-fmisid (nearest-weather-station-id lat lon))))
-      (when (not (eq nil observations))
-	(let ((region (fmi-observations:station-region (car observations)))
-	      (location (fmi-observations:station-location (car observations))))
-	(return-from formatted-weather (format-short-text region location observations "Paikkis"))))))
-  ;; (format nil "Paikkaa ~A ei löytynyt." place-name))))
+    (handler-case
+	(let ((observations (fmi-observations:observations
+			     (fmi-observations:make-fmisid-criterion (parse-integer (nearest-weather-station-id lat lon))))))
+	  (return-from formatted-weather (format-short-text observations "Paikkis")))
+      (fmi-observations:no-stations-error ())))
   "?¡")
 
 (defun formatted-wind (place-name)
   (when (eq nil place-name)
     (return-from formatted-wind "Paikan nimi vaaditaan."))
 
-  (let ((observations (fmi-observations:observations :place-name place-name)))
-    (when (not (eq nil observations))
-      (let ((region (fmi-observations:station-region (car observations)))
-	    (location (fmi-observations:station-location (car observations))))
-      (return-from formatted-wind (format-wind-short-text region location observations "FMI")))))
+  (handler-case
+      (let ((observations (fmi-observations:observations (fmi-observations:make-place-name-criterion place-name))))
+	(return-from formatted-wind (format-wind-short-text observations "FMI")))
+    (fmi-observations:no-stations-error ()))
 
   (let*
       ((place (first (resolve-place-name-coordinates place-name)))
@@ -430,23 +441,21 @@
     (when (eq lat nil)
       (return-from formatted-wind (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name)))
 
-    (let ((observations (fmi-observations:observations :station-fmisid (nearest-weather-station-id lat lon))))
-      (when (not (eq nil observations))
-	(let ((region (fmi-observations:station-region (car observations)))
-	      (location (fmi-observations:station-location (car observations))))
-	(return-from formatted-wind (format-wind-short-text region location observations "Paikkis"))))))
-  ;; (format nil "Paikkaa ~A ei löytynyt." place-name))))
+    (handler-case
+	(let ((observations (fmi-observations:observations
+			     (fmi-observations:make-fmisid-criterion (parse-integer (nearest-weather-station-id lat lon))))))
+	  (return-from formatted-wind (format-wind-short-text observations "Paikkis")))
+      (fmi-observations:no-stations-error ())))
   "?¡")
 
 (defun formatted-gusts (place-name)
   (when (eq nil place-name)
     (return-from formatted-gusts "Paikan nimi vaaditaan."))
 
-  (let ((observations (fmi-observations:observations :place-name place-name)))
-    (when (not (eq nil observations))
-      (let ((region (fmi-observations:station-region (car observations)))
-	    (location (fmi-observations:station-location (car observations))))
-      (return-from formatted-gusts (format-wind-gusts-short-text region location observations "FMI")))))
+  (handler-case
+      (let ((observations (fmi-observations:observations (fmi-observations:make-place-name-criterion place-name))))
+	(return-from formatted-gusts (format-wind-gusts-short-text observations "FMI")))
+    (fmi-observations:no-stations-error ()))
 
   (let*
       ((place (first (resolve-place-name-coordinates place-name)))
@@ -456,12 +465,11 @@
     (when (eq lat nil)
       (return-from formatted-gusts (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name)))
 
-    (let ((observations (fmi-observations:observations :station-fmisid (nearest-weather-station-id lat lon))))
-      (when (not (eq nil observations))
-	(let ((region (fmi-observations:station-region (car observations)))
-	      (location (fmi-observations:station-location (car observations))))
-	(return-from formatted-gusts (format-wind-gusts-short-text region location observations "Paikkis"))))))
-  ;; (format nil "Paikkaa ~A ei löytynyt." place-name))))
+    (handler-case
+	(let ((observations (fmi-observations:observations
+			     (fmi-observations:make-fmisid-criterion (parse-integer (nearest-weather-station-id lat lon))))))
+	  (return-from formatted-gusts (format-wind-gusts-short-text observations "Paikkis")))
+      (fmi-observations:no-stations-error ())))
   "?¡")
 
 (defun handle-irc-message (message)
@@ -535,6 +543,29 @@
 	 (stropt :long-name "fmi-api-key"
 		 :description "API-key for FMI API (required)")))
 
+(defun extract-station-location-to-fmisid-mapping ()
+  (let ((all-station-observations
+	 (fmi-observations:observations (fmi-observations:make-bbox-criterion 20 58 30 70)
+					:time-step-count 1)))
+    (mapcar #'(lambda (observation)
+		(let ((station (fmi-observations:station observation)))
+		  (list
+		   (list (fmi-observations:y (fmi-observations:station-location station))
+			 (fmi-observations:x (fmi-observations:station-location station)))
+		   (fmi-observations:station-fmi-id station))))
+	    all-station-observations)))
+
+(defun start-location-to-fmisid-mapping-thread ()
+  "This only runs once at startup. It's just so slow. :("
+  (bt:make-thread #'(lambda ()
+		      (progn
+			(setf *location-to-fmisid*
+			      (extract-station-location-to-fmisid-mapping))
+			(format *error-output*
+				";; location-to-fmisid mapping loaded, ~A locations~%" (length *location-to-fmisid*))
+			(terpri *error-output*)))
+		  :name "location-to-fmisid-thread"))
+
 (defun main ()
   (com.dvlsoft.clon:make-context)
   (when (com.dvlsoft.clon:getopt :short-name "h")
@@ -594,6 +625,7 @@
     ;; (setf *testing-thread* (start-testing-thread))
     (setf *processing-thread* (start-processing-thread))
 
+    (start-location-to-fmisid-mapping-thread)
 
     (format t ";; Running...~%")
     (let ((uptime 0))
