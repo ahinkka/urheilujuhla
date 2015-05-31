@@ -287,7 +287,7 @@
 		      (minutes-ago (fmi-observations:observation-time last-observation)))
 	      location-source))))
 
-(defun resolve-place-name-coordinates (place-name)
+(defun paikkis-geocode (place-name)
   (let ((place place-name)
 	(municipality nil))
 
@@ -400,77 +400,58 @@
 			   (minutes-ago (fmi-observations:observation-time item))))
 	      out)))))
 
-(defun formatted-weather (place-name)
-  (when (eq nil place-name)
-    (return-from formatted-weather "Paikan nimi vaaditaan."))
+(define-condition station-not-found-error () ())
 
+(defun observations-cascading (place-name)
+  "Returns a pair of (observations geocoding-service)."
   (handler-case
       (let ((observations (fmi-observations:observations (fmi-observations:make-place-name-criterion place-name))))
-	(return-from formatted-weather (format-short-text observations "FMI")))
+	(return-from observations-cascading (values observations "FMI")))
     (fmi-observations:no-stations-error ()))
 
   (let*
-      ((place (first (resolve-place-name-coordinates place-name)))
+      ((place (first (paikkis-geocode place-name)))
        (lat (cdr (assoc :lat place)))
        (lon (cdr (assoc :lon place))))
 
     (when (eq lat nil)
-      (return-from formatted-weather (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name)))
+      (error 'station-not-found-error))
 
     (handler-case
 	(let ((observations (fmi-observations:observations
 			     (fmi-observations:make-fmisid-criterion (parse-integer (nearest-weather-station-id lat lon))))))
-	  (return-from formatted-weather (format-short-text observations "Paikkis")))
-      (fmi-observations:no-stations-error ())))
-  "?¡")
+	  (values observations "Paikkis"))
+      (fmi-observations:no-stations-error ()))))
+
+(defun formatted-temperature (place-name)
+  (when (eq nil place-name)
+    (return-from formatted-temperature "Paikan nimi vaaditaan."))
+
+  (handler-case
+      (multiple-value-bind (observations geocoding-method)
+	  (observations-cascading place-name)
+	(format-short-text observations geocoding-method))
+    (station-not-found-error () (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name))))
 
 (defun formatted-wind (place-name)
   (when (eq nil place-name)
     (return-from formatted-wind "Paikan nimi vaaditaan."))
 
   (handler-case
-      (let ((observations (fmi-observations:observations (fmi-observations:make-place-name-criterion place-name))))
-	(return-from formatted-wind (format-wind-short-text observations "FMI")))
-    (fmi-observations:no-stations-error ()))
-
-  (let*
-      ((place (first (resolve-place-name-coordinates place-name)))
-       (lat (cdr (assoc :lat place)))
-       (lon (cdr (assoc :lon place))))
-
-    (when (eq lat nil)
-      (return-from formatted-wind (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name)))
-
-    (handler-case
-	(let ((observations (fmi-observations:observations
-			     (fmi-observations:make-fmisid-criterion (parse-integer (nearest-weather-station-id lat lon))))))
-	  (return-from formatted-wind (format-wind-short-text observations "Paikkis")))
-      (fmi-observations:no-stations-error ())))
-  "?¡")
+      (multiple-value-bind (observations geocoding-method)
+	  (observations-cascading place-name)
+	(format-wind-short-text observations geocoding-method))
+    (station-not-found-error () (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name))))
 
 (defun formatted-gusts (place-name)
   (when (eq nil place-name)
     (return-from formatted-gusts "Paikan nimi vaaditaan."))
 
   (handler-case
-      (let ((observations (fmi-observations:observations (fmi-observations:make-place-name-criterion place-name))))
-	(return-from formatted-gusts (format-wind-gusts-short-text observations "FMI")))
-    (fmi-observations:no-stations-error ()))
-
-  (let*
-      ((place (first (resolve-place-name-coordinates place-name)))
-       (lat (cdr (assoc :lat place)))
-       (lon (cdr (assoc :lon place))))
-
-    (when (eq lat nil)
-      (return-from formatted-gusts (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name)))
-
-    (handler-case
-	(let ((observations (fmi-observations:observations
-			     (fmi-observations:make-fmisid-criterion (parse-integer (nearest-weather-station-id lat lon))))))
-	  (return-from formatted-gusts (format-wind-gusts-short-text observations "Paikkis")))
-      (fmi-observations:no-stations-error ())))
-  "?¡")
+      (multiple-value-bind (observations geocoding-method)
+	  (observations-cascading place-name)
+	(format-gusts-short-text observations geocoding-method))
+    (station-not-found-error () (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name))))
 
 (defun handle-irc-message (message)
   (with-slots (source arguments) message
@@ -500,8 +481,8 @@
 
 	(let ((message 
 	       (cond
-		 ((string= first-word "SÄÄ")
-		  (handle-call #'formatted-weather rest-words))
+		 ((string= first-word "LÄMPÖ")
+		  (handle-call #'formatted-temperature rest-words))
 		 ((string= first-word "TOP")
 		  (handle-call #'formatted-top-temperatures))
 		 ((string= first-word "MEDIAN")
