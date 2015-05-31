@@ -319,7 +319,8 @@
 		 (drakma:url-encode place-name :utf-8)))
 	 (stream
 	  (flexi-streams:make-flexi-stream
-	   (drakma:http-request url :want-stream t)
+	   (drakma:http-request url :want-stream t
+				:user-agent "urheilujuhla IRC bot (+http://github.com/guaq/urheilujuhla/)")
 	   :external-format (flexi-streams:make-external-format :utf-8)))
 	 (alist (cl-json:decode-json stream)))
     alist))
@@ -436,7 +437,7 @@
       (handler-case
 	  (let ((observations (fmi-observations:observations
 			       (fmi-observations:make-fmisid-criterion (parse-integer (nearest-weather-station-id lat lon))))))
-	    (values observations "Nominatim"))
+	    (values observations "OSM Nominatim"))
 	(fmi-observations:no-stations-error ())))))
 
 (defun formatted-temperature (place-name)
