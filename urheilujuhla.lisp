@@ -270,7 +270,7 @@
 		      (minutes-ago (fmi-observations:observation-time last-observation)))
 	      location-source))))
 
-(defun format-wind-gusts-short-text (observations location-source)
+(defun format-gusts-short-text (observations location-source)
   (let* ((item-count (length observations))
 	 (last-observation (car (last observations)))
 	 (last-twentyfour (if (> (length observations) 23)
@@ -346,6 +346,7 @@
       (car (last nearest)))))
 
 (defun formatted-top-temperatures (&key bottom (count 5))
+  (check-type count integer)
   (let
       ((comparator
 	(if bottom #'< #'>))
@@ -381,6 +382,7 @@
 	      out)))))
 
 (defun formatted-median (&key (count 5))
+  (check-type count integer)
   (let
       ((observations (fmi-observations:observations
 		      (fmi-observations:make-bbox-criterion 20 60 30 70)
@@ -419,6 +421,7 @@
 
 (defun observations-cascading (place-name)
   "Returns a pair of (observations geocoding-service)."
+  (check-type place-name string)
   (handler-case
       (let ((observations (fmi-observations:observations (fmi-observations:make-place-name-criterion place-name))))
 	(return-from observations-cascading (values observations "FMI")))
@@ -428,9 +431,9 @@
       ((place (first (nominatim-geocode place-name))))
     (when (= (length place) 0)
       (error 'station-not-found-error))
+
     (let ((lat (parse-number:parse-number (cdr (assoc :lat place))))
 	  (lon (parse-number:parse-number (cdr (assoc :lon place)))))
-
       (when (eq lat nil)
 	(error 'station-not-found-error))
 
@@ -440,10 +443,14 @@
 	    (values observations "OSM Nominatim"))
 	(fmi-observations:no-stations-error ())))))
 
-(defun formatted-temperature (place-name)
-  (when (eq nil place-name)
-    (return-from formatted-temperature "Paikan nimi vaaditaan."))
+(defmacro check-place-name (place-name function)
+  `(progn
+     (when (eq nil ,place-name)
+       (return-from ,function "Paikan nimi vaaditaan."))
+     (check-type ,place-name string)))
 
+(defun formatted-temperature (place-name)
+  (check-place-name place-name formatted-temperature)
   (handler-case
       (multiple-value-bind (observations geocoding-method)
 	  (observations-cascading place-name)
@@ -451,9 +458,7 @@
     (station-not-found-error () (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name))))
 
 (defun formatted-wind (place-name)
-  (when (eq nil place-name)
-    (return-from formatted-wind "Paikan nimi vaaditaan."))
-
+  (check-place-name place-name formatted-wind)
   (handler-case
       (multiple-value-bind (observations geocoding-method)
 	  (observations-cascading place-name)
@@ -461,9 +466,7 @@
     (station-not-found-error () (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name))))
 
 (defun formatted-gusts (place-name)
-  (when (eq nil place-name)
-    (return-from formatted-gusts "Paikan nimi vaaditaan."))
-
+  (check-place-name place-name formatted-gusts)
   (handler-case
       (multiple-value-bind (observations geocoding-method)
 	  (observations-cascading place-name)
@@ -490,13 +493,12 @@
 	  ((handle-call (stimulus-function &optional args)
 	     (handler-case (if args
 			       (funcall stimulus-function args)
-			       (funcall stimulus-function))
+			       (funcall stimulus-function nil))
 	       (error (e)
 		(format *error-output* "Failed to respond to stimulus for ~a (~a)" args e)
-		(format nil "Virhe: ~a" (class-of e))))))
-	       
+		(format nil "Virhe: ~a (~a)" e (class-of e))))))
 
-	(let ((message 
+	(let ((message
 	       (cond
 		 ((string= first-word "LÄMPÖ")
 		  (handle-call #'formatted-temperature rest-words))
@@ -543,8 +545,11 @@
 
 (defun extract-station-location-to-fmisid-mapping ()
   (let ((all-station-observations
-	 (fmi-observations:observations (fmi-observations:make-bbox-criterion 20 58 30 70)
-					:time-step-count 1)))
+	 (remove-if-not
+	  #'(lambda (observation)
+	      (or (not (null (fmi-observations:temperature observation)))
+		  (not (null (fmi-observations:windspeed observation)))))
+	  (fmi-observations:observations (fmi-observations:make-bbox-criterion 20 58 30 70) :time-step-count 1))))
     (mapcar #'(lambda (observation)
 		(let ((station (fmi-observations:station observation)))
 		  (list
@@ -554,14 +559,16 @@
 	    all-station-observations)))
 
 (defun start-location-to-fmisid-mapping-thread ()
-  "This only runs once at startup. It's just so slow. :("
+  "This runs periodically."
   (bt:make-thread #'(lambda ()
-		      (progn
-			(setf *location-to-fmisid*
-			      (extract-station-location-to-fmisid-mapping))
-			(format *error-output*
-				";; location-to-fmisid mapping loaded, ~A locations~%" (length *location-to-fmisid*))
-			(terpri *error-output*)))
+		      (loop do
+			   (setf *location-to-fmisid*
+				 (extract-station-location-to-fmisid-mapping))
+			   (format *error-output*
+				   ";; location-to-fmisid mapping loaded, ~A locations~%" (length *location-to-fmisid*))
+			   (terpri *error-output*)
+			   (force-output *error-output*)
+			   (sleep 3600)))
 		  :name "location-to-fmisid-thread"))
 
 (defun main ()
