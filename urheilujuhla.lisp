@@ -216,9 +216,12 @@
   (let* ((station (fmi-observations:station observation))
 	 (name (fmi-observations:station-name station))
 	 (region (fmi-observations:station-region station)))
-    (if (= 0 (search region name :test #'char=))
-	(format nil "~A, ~A" (subseq name (+ (length region) 1)) region)
-	(format nil "~A, ~A" name region))))
+    (let ((comp (search region name :test #'char=)))
+      (if (null comp)
+	  (format nil "~A, ~A" name region)
+	  (if (= 0 (search region name :test #'char=))
+	      (format nil "~A, ~A" (subseq name (+ (length region) 1)) region)
+	      (format nil "~A, ~A" name region))))))
 
 (defun format-last-observation (observations)
   (format nil "~A: ~A @ ~A"
@@ -309,6 +312,17 @@
 	     :external-format (flexi-streams:make-external-format :utf-8)))
 	   (alist (cl-json:decode-json stream)))
       (values alist url))))
+
+(defun nominatim-geocode (place-name)
+  (let* ((url
+	 (format nil "http://nominatim.openstreetmap.org/search/~A?format=json&limit=1"
+		 (drakma:url-encode place-name :utf-8)))
+	 (stream
+	  (flexi-streams:make-flexi-stream
+	   (drakma:http-request url :want-stream t)
+	   :external-format (flexi-streams:make-external-format :utf-8)))
+	 (alist (cl-json:decode-json stream)))
+    alist))
 
 (defun nearest-weather-station-id (lat lon)
   (let ((nearest)
@@ -409,19 +423,21 @@
 	(return-from observations-cascading (values observations "FMI")))
     (fmi-observations:no-stations-error ()))
 
-  (let*
-      ((place (first (paikkis-geocode place-name)))
-       (lat (cdr (assoc :lat place)))
-       (lon (cdr (assoc :lon place))))
-
-    (when (eq lat nil)
+  (let
+      ((place (first (nominatim-geocode place-name))))
+    (when (= (length place) 0)
       (error 'station-not-found-error))
+    (let ((lat (parse-number:parse-number (cdr (assoc :lat place))))
+	  (lon (parse-number:parse-number (cdr (assoc :lon place)))))
 
-    (handler-case
-	(let ((observations (fmi-observations:observations
-			     (fmi-observations:make-fmisid-criterion (parse-integer (nearest-weather-station-id lat lon))))))
-	  (values observations "Paikkis"))
-      (fmi-observations:no-stations-error ()))))
+      (when (eq lat nil)
+	(error 'station-not-found-error))
+
+      (handler-case
+	  (let ((observations (fmi-observations:observations
+			       (fmi-observations:make-fmisid-criterion (parse-integer (nearest-weather-station-id lat lon))))))
+	    (values observations "Nominatim"))
+	(fmi-observations:no-stations-error ())))))
 
 (defun formatted-temperature (place-name)
   (when (eq nil place-name)
