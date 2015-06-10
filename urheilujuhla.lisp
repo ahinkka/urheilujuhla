@@ -325,9 +325,10 @@
 	 (alist (cl-json:decode-json stream)))
     alist))
 
-(defun nearest-weather-station-id (lat lon)
+(defun nearest-weather-station-id (lat lon &key (second nil))
   (let ((nearest)
-	(nearest-distance))
+	(nearest-distance)
+	(second-nearest))
 
     (flet ((distance (lat1 lon1 lat2 lon2)
 	     (sqrt (+
@@ -340,12 +341,15 @@
 		 (eq nearest nil)
 		 (< dist nearest-distance))
 	    (progn
+	      (setf second-nearest nearest)
 	      (setf nearest item)
 	      (setf nearest-distance dist)))))
 
-      (car (last nearest)))))
+      (if second
+	  (car (last second-nearest))
+	  (car (last nearest))))))
 
-(defun formatted-top-temperatures (&key bottom (count 5))
+(defun formatted-top-temperatures (&key (bottom nil) (count 5))
   (check-type count integer)
   (let
       ((comparator
@@ -419,14 +423,14 @@
 
 (define-condition station-not-found-error () ())
 
-(defun observations-cascading (place-name)
-  "Returns a pair of (observations geocoding-service)."
-  (check-type place-name string)
+(defun observations-fmi (place-name)
   (handler-case
-      (let ((observations (fmi-observations:observations (fmi-observations:make-place-name-criterion place-name))))
-	(return-from observations-cascading (values observations "FMI")))
-    (fmi-observations:no-stations-error ()))
+      (values
+       (fmi-observations:observations (fmi-observations:make-place-name-criterion place-name))
+       "FMI")
+    (fmi-observations:no-stations-error ())))
 
+(defun observations-nominatim (place-name &key (second nil))
   (let
       ((place (first (nominatim-geocode place-name))))
     (when (= (length place) 0)
@@ -439,9 +443,34 @@
 
       (handler-case
 	  (let ((observations (fmi-observations:observations
-			       (fmi-observations:make-fmisid-criterion (parse-integer (nearest-weather-station-id lat lon))))))
+			       (fmi-observations:make-fmisid-criterion
+				(parse-integer
+				 (nearest-weather-station-id lat lon :second second))))))
 	    (values observations "OSM Nominatim"))
 	(fmi-observations:no-stations-error ())))))
+
+
+(defun observations-good-p (observations slot-accessor)
+  (cond
+    ((null observations) nil)
+    ((> (length observations) 0)
+     (some #'(lambda (x) (not (null x)))
+      (mapcar #'(lambda (item) (apply slot-accessor (list item))) observations)))))
+
+(defun observations-cascading (place-name slot-accessor)
+  "Returns a pair of (observations geocoding-service)."
+  (check-type place-name string)
+
+  (dolist (fun
+	    (list #'observations-fmi
+		  #'observations-nominatim
+		  #'(lambda (place-name) (observations-nominatim place-name :second t))))
+    (multiple-value-bind
+	  (observations source)
+	(apply fun (list place-name))
+      (when (observations-good-p observations slot-accessor)
+	(return-from observations-cascading (values observations source)))))
+  "?¿")
 
 (defmacro check-place-name (place-name function)
   `(progn
@@ -453,7 +482,7 @@
   (check-place-name place-name formatted-temperature)
   (handler-case
       (multiple-value-bind (observations geocoding-method)
-	  (observations-cascading place-name)
+	  (observations-cascading place-name #'fmi-observations:temperature)
 	(format-short-text observations geocoding-method))
     (station-not-found-error () (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name))))
 
@@ -461,7 +490,7 @@
   (check-place-name place-name formatted-wind)
   (handler-case
       (multiple-value-bind (observations geocoding-method)
-	  (observations-cascading place-name)
+	  (observations-cascading place-name #'fmi-observations:windspeed)
 	(format-wind-short-text observations geocoding-method))
     (station-not-found-error () (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name))))
 
@@ -469,7 +498,7 @@
   (check-place-name place-name formatted-gusts)
   (handler-case
       (multiple-value-bind (observations geocoding-method)
-	  (observations-cascading place-name)
+	  (observations-cascading place-name #'fmi-observations:wind-gusts)
 	(format-gusts-short-text observations geocoding-method))
     (station-not-found-error () (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name))))
 
@@ -493,7 +522,7 @@
 	  ((handle-call (stimulus-function &optional args)
 	     (handler-case (if args
 			       (funcall stimulus-function args)
-			       (funcall stimulus-function nil))
+			       (funcall stimulus-function))
 	       (error (e)
 		(format *error-output* "Failed to respond to stimulus for ~a (~a)" args e)
 		(format nil "Virhe: ~a (~a)" e (class-of e))))))
