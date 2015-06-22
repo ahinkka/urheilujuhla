@@ -349,7 +349,7 @@
 	  (car (last second-nearest))
 	  (car (last nearest))))))
 
-(defun formatted-top-temperatures (&key (bottom nil) (count 5))
+(defun formatted-top-temperatures (ignored-arg &key (bottom nil) (count 5))
   (check-type count integer)
   (let
       ((comparator
@@ -385,7 +385,7 @@
 			   (minutes-ago (fmi-observations:observation-time item))))
 	      out)))))
 
-(defun formatted-median (&key (count 5))
+(defun formatted-median (ignored-arg &key (count 5))
   (check-type count integer)
   (let
       ((observations (fmi-observations:observations
@@ -522,7 +522,7 @@
 	  ((handle-call (stimulus-function &optional args)
 	     (handler-case (if args
 			       (funcall stimulus-function args)
-			       (funcall stimulus-function))
+			       (funcall stimulus-function nil))
 	       (error (e)
 		(format *error-output* "Failed to respond to stimulus for ~a (~a)" args e)
 		(format nil "Virhe: ~a (~a)" e (class-of e))))))
@@ -533,10 +533,14 @@
 		  (handle-call #'formatted-temperature rest-words))
 		 ((string= first-word "TOP")
 		  (handle-call #'formatted-top-temperatures))
+		 ((string= first-word "HUIPUT")
+		  (handle-call #'formatted-top-temperatures))
 		 ((string= first-word "MEDIAN")
 		  (handle-call #'formatted-median))
+		 ((string= first-word "MEDIAANI")
+		  (handle-call #'formatted-median))
 		 ((string= first-word "BOTTOM")
-		  (handle-call #'(lambda () (formatted-top-temperatures :bottom t))))
+		  (handle-call #'(lambda (ignored-arg) (formatted-top-temperatures ignored-arg :bottom t))))
 		 ((string= first-word "TUULI")
 		  (handle-call #'formatted-wind rest-words))
 		 ((string= first-word "PUUSKAT")
