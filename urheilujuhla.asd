@@ -9,7 +9,7 @@
 	       #:lift
 	       #:cl-irc
 
-	       #:com.dvlsoft.clon
+	       #:net.didierverna.clon
 	       #:swank
 
 	       #:fmi-observations

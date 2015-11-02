@@ -556,7 +556,7 @@
 ;;;
 ;;; Command line options
 ;;;
-(com.dvlsoft.clon:defsynopsis (:postfix "FILES...")
+(net.didierverna.clon:defsynopsis (:postfix "FILES...")
   (text :contents "This is Urheilujuhla.")
   (group (:header "Immediate exit options:")
 	 (flag :short-name "h" :long-name "help"
@@ -595,27 +595,35 @@
   "This runs periodically."
   (bt:make-thread #'(lambda ()
 		      (loop do
-			   (setf *location-to-fmisid*
-				 (extract-station-location-to-fmisid-mapping))
-			   (format *error-output*
-				   ";; location-to-fmisid mapping loaded, ~A locations~%" (length *location-to-fmisid*))
-			   (terpri *error-output*)
-			   (force-output *error-output*)
-			   (sleep 3600)))
+			   (handler-case
+			       (progn
+				 (setf *location-to-fmisid*
+				       (extract-station-location-to-fmisid-mapping))
+				 (format *error-output*
+					 ";; location-to-fmisid mapping loaded, ~A locations~%" (length *location-to-fmisid*))
+				 (terpri *error-output*)
+				 (force-output *error-output*)
+				 (sleep 3600))
+			     (error (e)
+			       (format *error-output* ";; Encountered error while loading focation-to-fmisid mapping: '~A', stack:~%" e)
+			       (sb-debug:backtrace 5 *error-output*)
+			       (terpri *error-output*)
+			       (force-output *error-output*)
+			       (sleep 120)))))
 		  :name "location-to-fmisid-thread"))
 
 (defun main ()
-  (com.dvlsoft.clon:make-context)
-  (when (com.dvlsoft.clon:getopt :short-name "h")
-    (com.dvlsoft.clon:help)
-    (com.dvlsoft.clon:exit))
+  (net.didierverna.clon:make-context)
+  (when (net.didierverna.clon:getopt :short-name "h")
+    (net.didierverna.clon:help)
+    (net.didierverna.clon:exit))
 
-  (let ((irc-host (com.dvlsoft.clon:getopt :long-name "irc-host"))
-	(irc-port (com.dvlsoft.clon:getopt :long-name "irc-port"))
-	(irc-nick (com.dvlsoft.clon:getopt :long-name "irc-nick"))
-	(irc-username (com.dvlsoft.clon:getopt :long-name "irc-username"))
-	(irc-channels (com.dvlsoft.clon:getopt :long-name "irc-channels"))
-	(irc-realname (com.dvlsoft.clon:getopt :long-name "irc-realname")))
+  (let ((irc-host (net.didierverna.clon:getopt :long-name "irc-host"))
+	(irc-port (net.didierverna.clon:getopt :long-name "irc-port"))
+	(irc-nick (net.didierverna.clon:getopt :long-name "irc-nick"))
+	(irc-username (net.didierverna.clon:getopt :long-name "irc-username"))
+	(irc-channels (net.didierverna.clon:getopt :long-name "irc-channels"))
+	(irc-realname (net.didierverna.clon:getopt :long-name "irc-realname")))
 
     (unless (and irc-host irc-port irc-nick irc-username irc-realname irc-channels)
       (format *error-output* "All IRC options are required!~%")
@@ -630,25 +638,25 @@
       (terpri *error-output*)
 
       (force-output *error-output*)
-      (com.dvlsoft.clon:help)
-      (com.dvlsoft.clon:exit))
+      (net.didierverna.clon:help)
+      (net.didierverna.clon:exit))
 
-    (let ((api-key (com.dvlsoft.clon:getopt :long-name "fmi-api-key")))
+    (let ((api-key (net.didierverna.clon:getopt :long-name "fmi-api-key")))
       (when (eq nil api-key)
 	(format *error-output* "FMI API-key required!~%")
 
 	(force-output *error-output*)
-	(com.dvlsoft.clon:help)
-	(com.dvlsoft.clon:exit))
+	(net.didierverna.clon:help)
+	(net.didierverna.clon:exit))
 
       (format *error-output* ";; Using ~A as FMI API-key.~%" api-key)
       (setf fmi-observations:*api-key* api-key))
 
-    (if (com.dvlsoft.clon:getopt :long-name "enable-swank")
+    (if (net.didierverna.clon:getopt :long-name "enable-swank")
 	(progn
 	  (format *error-output* ";; Enabling SWANK...~%")
 	  (let ((port 14005)
-		(port-string (com.dvlsoft.clon:getopt :long-name "swank-port")))
+		(port-string (net.didierverna.clon:getopt :long-name "swank-port")))
 	    (when port-string
 	      (setf port (parse-integer port-string)))
 	    (swank:create-server :port port :dont-close t)))
