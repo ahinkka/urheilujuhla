@@ -478,11 +478,13 @@
 		  #'observations-fmi
 		  #'observations-nominatim
 		  #'(lambda (place-name) (observations-nominatim place-name :second t))))
-    (multiple-value-bind
-	  (observations source)
-	(apply fun (list place-name))
-      (when (observations-good-p observations slot-accessor)
-	(return-from observations-cascading (values observations source)))))
+    (handler-case
+	(multiple-value-bind
+	      (observations source)
+	    (apply fun (list place-name))
+	  (when (observations-good-p observations slot-accessor)
+	    (return-from observations-cascading (values observations source))))
+      (urheilujuhla::station-not-found-error ())))
   "?¿")
 
 (defmacro check-place-name (place-name function)
