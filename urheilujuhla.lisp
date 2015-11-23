@@ -111,12 +111,20 @@
 	   (let ((popped (pop *to-irc*)))
 	     (when (and (first popped) (second popped))
 	       (format t "IRC << ~A~%" popped)
-	       (apply #'irc:privmsg (list *irc-connection* (first popped) (second popped)))))))
+	       (handler-case
+		   (apply #'irc:privmsg (list *irc-connection* (first popped) (second popped)))
+		 (error (e)
+		   (push popped *to-irc*)
+		   (format *error-output* ";; Encountered error while trying to send message to IRC: '~A', stack:~%" e)
+		   (sb-debug:print-backtrace :count 5 :stream *error-output*)
+		   (terpri *error-output*)
+		   (force-output *error-output*)
+		   (sleep 5)))))))
        (sleep 1)))
 
 
 (defun start-irc-sender-thread ()
-  (bt:make-thread #'run-irc-sender-thread :name "irc-sender-thread"))
+  (bt:make-thread #'urheilujuhla::run-irc-sender-thread :name "irc-sender-thread"))
 
 
 ;;;
@@ -449,6 +457,10 @@
 	    (values observations "OSM Nominatim"))
 	(fmi-observations:no-stations-error ())))))
 
+(defun observations-biomine (place-name)
+  (when (string= (string-downcase place-name) "torstinpyhtää")
+    (return-from observations-biomine (values (observations-nominatim "Espoonlahti") "Biomine")))
+  (error 'station-not-found-error))
 
 (defun observations-good-p (observations slot-accessor)
   (cond
@@ -462,7 +474,8 @@
   (check-type place-name string)
 
   (dolist (fun
-	    (list #'observations-fmi
+	    (list #'observations-biomine
+		  #'observations-fmi
 		  #'observations-nominatim
 		  #'(lambda (place-name) (observations-nominatim place-name :second t))))
     (multiple-value-bind
@@ -606,7 +619,7 @@
 				 (sleep 3600))
 			     (error (e)
 			       (format *error-output* ";; Encountered error while loading focation-to-fmisid mapping: '~A', stack:~%" e)
-			       (sb-debug:backtrace 5 *error-output*)
+			       (sb-debug:print-backtrace :count 5 :stream *error-output*)
 			       (terpri *error-output*)
 			       (force-output *error-output*)
 			       (sleep 120)))))
