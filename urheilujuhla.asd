@@ -4,6 +4,8 @@
 	       #:babel
 	       #:alexandria
 	       #:iterate
+	       #:drakma
+	       #:parse-number
 
 	       #:object-system
 	       #:lift

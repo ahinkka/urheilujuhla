@@ -1,17 +1,36 @@
 (defpackage #:urheilujuhla
-  (:use
-   #:common-lisp
-   #:iterate
-
-   #:cl-irc
-   #:object-system)
+  (:use #:common-lisp #:iterate)
   (:export :main))
 
 (in-package :urheilujuhla)
 
+;;;
+;;; Logging
+;;;
+(declaim (notinline log-message))
+(defun log-message (&rest args)
+  (if (= 1 (length args))
+      (format *error-output* "~A" (first args))
+      (apply #'format (cons *error-output* args)))
+  (format *error-output* "~%")
+  (force-output *error-output*))
+
+(declaim (notinline log-describing))
+(defun log-describing (describable)
+  (describe describable *error-output*)
+  (force-output *error-output*))
+
+(declaim (notinline log-describing))
+(defun log-backtrace ()
+  (sb-debug:print-backtrace :count 5 :stream *error-output*)
+  (terpri *error-output*)
+  (force-output *error-output*))
+
+;;;
+;;; State references
+;;;
 (defvar *irc-thread*)
 (defvar *irc-sender-thread*)
-(defvar *object-system-thread*)
 (defvar *processing-thread*)
 
 (defvar *irc-connection*)
@@ -22,8 +41,6 @@
 (defvar *queues-updated* (bt:make-condition-variable :name "queues-updated"))
 (defvar *from-irc* '())
 (defvar *to-irc* '())
-(defvar *from-object-system* '())
-(defvar *to-object-system* '())
 
 ;; Will contain an alist from (lat lon) => fmisid as string
 (defvar *location-to-fmisid* '())
@@ -40,42 +57,38 @@
     (bt:condition-notify *queues-updated*)))
 
 (defun handle-irc-error (message)
-  (format *error-output* ";; In HANDLE-IRC-ERROR~%")
-  (describe message *error-output*)
-  (force-output *error-output*)
+  (log-message "In HANDLE-IRC-ERROR~%")
+  (log-describing message)
 
-  (with-slots (arguments) message
-    (let ((message-proper (car arguments)))
+  (with-slots (irc:arguments) message
+    (let ((message-proper (car irc:arguments)))
       (when 
 	  (or
 	   (search "ping timeout" (string-downcase message-proper))
 	   (search "closing link" (string-downcase message-proper)))
-	(format *error-output* ";; Error with message ~A detected.~%" message-proper)
-	(force-output *error-output*)
+	(log-message "Error with message ~A detected." message-proper)
 
-	(format *error-output* ";; Quitting the IRC connection ~A.~%" *irc-connection*)
-	(force-output *error-output*)
+	(log-message "Quitting the IRC connection ~A." *irc-connection*)
 	(irc:quit *irc-connection*)
 
-	(format *error-output* ";; Signaling an error to re-establish connection.~%")
-	(force-output *error-output*)
+	(log-message "Signaling an error to re-establish connection.")
 	(error 'irc-connection-error :description message-proper)))))
 
 (defun connect-to-irc-server (host port nick username realname)
   (setf *irc-connection* (irc:connect :server host :port port :nickname nick
 				      :username username :realname realname))
   (when *irc-connection*
-    (remove-hooks *irc-connection* 'irc-privmsg-message))
+    (irc:remove-hooks *irc-connection* 'irc:irc-privmsg-message))
   
-  (add-hook *irc-connection* 'irc-privmsg-message #'handle-irc-privmsg)
-  (add-hook *irc-connection* 'irc-error-message #'handle-irc-error)
+  (irc:add-hook *irc-connection* 'irc:irc-privmsg-message #'handle-irc-privmsg)
+  (irc:add-hook *irc-connection* 'irc:irc-error-message #'handle-irc-error)
 
   (dolist (channel *irc-channels*)
-    (format *error-output* ";; Joining channel ~A~%" channel)
+    (log-message "Joining channel ~A~%" channel)
     (force-output *error-output*)
     (irc:join *irc-connection* channel))
 
-  (setf *irc-sender-thread* (start-irc-sender-thread))
+  (setf *irc-sender-thread* (make-irc-sender-thread))
 
   (irc:read-message-loop *irc-connection*))
 
@@ -84,25 +97,24 @@
        (handler-case
 	   (connect-to-irc-server host port nick username realname)
 	 (irc-connection-error (err)
-	   (format *error-output* ";; Connection failed due to: ~A~%" err))
+	   (log-message "Connection failed due to: ~A." err))
 	 (usocket:socket-error (err)
-	   (format *error-output* ";; Connection failed due to network issue: ~A~%" err)))
+	   (log-message "Connection failed due to network issue: ~A." err)))
 
        (setf *irc-sender-should-stop* t)
 
-       (format *error-output* ";; Thread ~A sleeping for 30 seconds...~%"
-	       (bt:thread-name (bt:current-thread)))
-       (force-output *error-output*)
+       (log-message "Thread ~A sleeping for 30 seconds..."
+		    (bt:thread-name (bt:current-thread)))
        (sleep 30)))
 
-(defun start-irc-thread (host port nick username realname)
+(defun make-irc-thread (host port nick username realname)
   (bt:make-thread #'(lambda () (run-irc-thread host port nick username realname))
 		  :name "irc-thread"))
 
 (defun run-irc-sender-thread ()
   (loop do
        (when *irc-sender-should-stop*
-	 (format *error-output* ";; IRC sender thread stopping~%")
+	 (log-message "IRC sender thread stopping~%")
 	 (setf *irc-sender-should-stop* nil)
 	 (return-from run-irc-sender-thread))
 
@@ -115,33 +127,13 @@
 		   (apply #'irc:privmsg (list *irc-connection* (first popped) (second popped)))
 		 (error (e)
 		   (push popped *to-irc*)
-		   (format *error-output* ";; Encountered error while trying to send message to IRC: '~A', stack:~%" e)
-		   (sb-debug:print-backtrace :count 5 :stream *error-output*)
-		   (terpri *error-output*)
-		   (force-output *error-output*)
+		   (log-message "Encountered error while trying to send message to IRC: '~A', stack:" e)
+		   (log-backtrace)
 		   (sleep 5)))))))
        (sleep 1)))
 
-
-(defun start-irc-sender-thread ()
+(defun make-irc-sender-thread ()
   (bt:make-thread #'urheilujuhla::run-irc-sender-thread :name "irc-sender-thread"))
-
-
-;;;
-;;; Testing (without IRC connection...)
-;;;
-(defun run-testing-thread ()
-  (loop do
-       (bt:with-lock-held (*queue-lock*)
-	 (let ((val (random 100)))
-	   (format t "Inserting ~A...~%" val)
-	   (push val *from-irc*)
-	   (bt:condition-notify *queues-updated*)))
-       (sleep 3)))
-
-(defun start-testing-thread ()
-  (bt:make-thread #'run-testing-thread :name "testing-thread"))
-
 
 ;;;
 ;;; Actual "brain" of the bot
@@ -158,16 +150,11 @@
 				  (handle-irc-message msg))
 			      :name "irc-message-handler")))
 
-
-
-       (loop while (> (length *from-object-system*) 0) do
-	    (format t "OBJECT-SYSTEM> ~A~%" (pop *from-object-system*)))
-
        ;; (format t "Done processing queues.~%")
        (force-output)
        (bt:release-lock *queue-lock*)))
 
-(defun start-processing-thread ()
+(defun make-processing-thread ()
   (bt:make-thread #'run-processing-thread :name "processing-thread"))
 
 (defvar +date-format+
@@ -201,7 +188,6 @@
 	      (max (apply-to-numbers seq #'max)))
 	  (values
 	   (format-values seq min max) min max)))))
-
 
 (defun directions-line (seq)
   (flet ((direction-number (number)
@@ -518,12 +504,12 @@
     (station-not-found-error () (format nil "Ei pystytty paikantamaan nimeä '~a'." place-name))))
 
 (defun handle-irc-message (message)
-  (with-slots (source arguments) message
-    (let* ((from-channel (if (cl-ppcre:all-matches "^[#\!].*$" (first arguments)) 
-			    (first arguments) nil))
-	   (from-person (if (cl-ppcre:all-matches "^[^#^\!].*$" (first arguments))
-			    (first arguments) nil))
-	   (message-proper (second arguments))
+  (with-slots (irc:source irc:arguments) message
+    (let* ((from-channel (if (cl-ppcre:all-matches "^[#\!].*$" (first irc:arguments)) 
+			    (first irc:arguments) nil))
+	   (from-person (if (cl-ppcre:all-matches "^[^#^\!].*$" (first irc:arguments))
+			    (first irc:arguments) nil))
+	   (message-proper (second irc:arguments))
 	   (first-word (string-trim ",:;"
 				    (first
 				     (cl-ppcre:split " "
@@ -539,8 +525,8 @@
 			       (funcall stimulus-function args)
 			       (funcall stimulus-function nil))
 	       (error (e)
-		(format *error-output* "Failed to respond to stimulus for ~a (~a)" args e)
-		(format nil "Virhe: ~a (~a)" e (class-of e))))))
+		 (log-message "Failed to respond to stimulus for ~a (~a)" args e)
+		 (format nil "Virhe: ~a (~a)" e (class-of e))))))
 
 	(let ((message
 	       (cond
@@ -564,24 +550,23 @@
 	  (unless (null message)
 	    (bt:with-lock-held (*queue-lock*)
 	      (if from-person
-		  (push (list source message) *to-irc*)
-		  (push (list from-channel (format nil "~A, ~A" source message)) *to-irc*)))))))))
-
+		  (push (list irc:source message) *to-irc*)
+		  (push (list from-channel (format nil "~A, ~A" irc:source message)) *to-irc*)))))))))
 
 ;;;
 ;;; Command line options
 ;;;
-(net.didierverna.clon:defsynopsis (:postfix "FILES...")
+(net.didierverna.clon:defsynopsis ()
   (text :contents "This is Urheilujuhla.")
   (group (:header "Immediate exit options:")
 	 (flag :short-name "h" :long-name "help"
 	       :description "Print this help and exit."))
   (group (:header "IRC settings:")
 	 (stropt :long-name "irc-host")
-	 (stropt :long-name "irc-port")
+	 (stropt :long-name "irc-port" :default-value "6667")
 	 (stropt :long-name "irc-nick")
-	 (stropt :long-name "irc-username")
-	 (stropt :long-name "irc-realname")
+	 (stropt :long-name "irc-username" :default-value "urheilujuhla")
+	 (stropt :long-name "irc-realname" :default-value "UJ")
 	 (stropt :long-name "irc-channels"))
   (group (:header "SWANK settings:")
 	 (switch :long-name "enable-swank"
@@ -606,7 +591,7 @@
 		   (fmi-observations:station-fmi-id station))))
 	    all-station-observations)))
 
-(defun start-location-to-fmisid-mapping-thread ()
+(defun make-location-to-fmisid-mapping-thread ()
   "This runs periodically."
   (bt:make-thread #'(lambda ()
 		      (loop do
@@ -614,16 +599,14 @@
 			       (progn
 				 (setf *location-to-fmisid*
 				       (extract-station-location-to-fmisid-mapping))
-				 (format *error-output*
-					 ";; location-to-fmisid mapping loaded, ~A locations~%" (length *location-to-fmisid*))
-				 (terpri *error-output*)
-				 (force-output *error-output*)
+				 (log-message
+				  "location-to-fmisid mapping loaded, ~A locations."
+				  (length *location-to-fmisid*))
 				 (sleep 3600))
 			     (error (e)
-			       (format *error-output* ";; Encountered error while loading focation-to-fmisid mapping: '~A', stack:~%" e)
-			       (sb-debug:print-backtrace :count 5 :stream *error-output*)
-			       (terpri *error-output*)
-			       (force-output *error-output*)
+			       (log-message
+				"Encountered error while loading focation-to-fmisid mapping: '~A', stack:~%." e)
+			       (log-backtrace)
 			       (sleep 120)))))
 		  :name "location-to-fmisid-thread"))
 
@@ -641,7 +624,7 @@
 	(irc-realname (net.didierverna.clon:getopt :long-name "irc-realname")))
 
     (unless (and irc-host irc-port irc-nick irc-username irc-realname irc-channels)
-      (format *error-output* "All IRC options are required!~%")
+      (log-message "All IRC options are required!")
 
       (dolist (arg (list (list "irc-host" irc-host)
 			 (list "irc-port" irc-port)
@@ -649,49 +632,49 @@
 			 (list "irc-username" irc-username)
 			 (list "irc-realname" irc-realname)
 			 (list "irc-channels" irc-channels))
-	(format t " ~A: ~A~%" (first arg) (second arg))))
-      (terpri *error-output*)
-
-      (force-output *error-output*)
+	       (log-message " ~A: ~A" (first arg) (second arg))))
       (net.didierverna.clon:help)
       (net.didierverna.clon:exit))
 
     (let ((api-key (net.didierverna.clon:getopt :long-name "fmi-api-key")))
       (when (eq nil api-key)
-	(format *error-output* "FMI API-key required!~%")
-
-	(force-output *error-output*)
+	(log-message "FMI API-key required!")
 	(net.didierverna.clon:help)
 	(net.didierverna.clon:exit))
 
-      (format *error-output* ";; Using ~A as FMI API-key.~%" api-key)
+      (log-message "Using ~A as FMI API-key." api-key)
       (setf fmi-observations:*api-key* api-key))
 
     (if (net.didierverna.clon:getopt :long-name "enable-swank")
 	(progn
-	  (format *error-output* ";; Enabling SWANK...~%")
+	  (log-message "Enabling SWANK...")
 	  (let ((port 14005)
 		(port-string (net.didierverna.clon:getopt :long-name "swank-port")))
 	    (when port-string
 	      (setf port (parse-integer port-string)))
 	    (swank:create-server :port port :dont-close t)))
-	(format *error-output* ";; Not starting SWANK.~%"))
-    (force-output *error-output*)
+	(log-message "Not starting SWANK."))
 
     (setf *irc-channels* (cl-ppcre:split "," irc-channels))
     (setf *irc-thread*
-	  (start-irc-thread irc-host
-			    (parse-integer irc-port)
-			    irc-nick irc-username irc-realname))
-    ;; (setf *testing-thread* (start-testing-thread))
-    (setf *processing-thread* (start-processing-thread))
+	  (make-irc-thread
+	   irc-host (parse-integer irc-port) irc-nick irc-username irc-realname))
+    (setf *processing-thread* (make-processing-thread))
 
-    (start-location-to-fmisid-mapping-thread)
+    (make-location-to-fmisid-mapping-thread)
 
-    (format t ";; Running...~%")
+    (log-message "Running...")
     (let ((uptime 0))
       (loop do
-	   (format t "Uptime: ~A seconds~%" uptime)
-	   (force-output)
+	   (log-message "Uptime: ~A seconds." uptime)
 	   (sleep 300)
 	   (incf uptime 300)))))
+
+(defun test-main (fmi-api-key)
+  (let ((fmisid-mapping-thread (make-location-to-fmisid-mapping-thread)))
+    (log-message "Running...")
+    (let ((uptime 0))
+      (loop do
+	   (log-message "Uptime: ~A seconds." uptime)
+	   (sleep 1)
+	   (incf uptime 1)))))

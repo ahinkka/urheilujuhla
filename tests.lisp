@@ -1,10 +1,16 @@
 (defpackage #:urheilujuhla-tests
   (:use #:common-lisp #:urheilujuhla #:lift)
-  (:export #:run-tests #:run-tests-non-interactive))
+  (:export #:run-all-tests #:run-all-tests-non-interactive))
 
 (in-package :urheilujuhla-tests)
 
-(deftestsuite sparkline ()
+
+(deftestsuite urheilujuhla-suite () ())
+
+;;;
+;;; Testing sparkline-function
+;;;
+(deftestsuite sparkline (urheilujuhla-suite)
   ((expected-output "▁▃▅█")
    (good-list '(1 2 3 4))
    (good-vector #(1 2 3 4))
@@ -48,8 +54,20 @@
 	       expected-all-nil-output))
 
 
-(defun run-tests-non-interactive ()
-  (run-tests)
+;;;
+;;; Testing thread setup and teardown
+;;;
+(deftestsuite thread-control (urheilujuhla-suite)
+  ())
+
+;;;
+;;; Helpers
+;;;
+(defun run-all-tests ()
+  (run-tests :suite (find-testsuite 'urheilujuhla-suite)))
+
+(defun run-all-tests-non-interactive ()
+  (run-all-tests)
   (terpri)
   (format t "~a~%" lift:*test-result*)
 
