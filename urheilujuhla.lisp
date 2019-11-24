@@ -284,28 +284,27 @@
 		      (minutes-ago (fmi-observations:observation-time last-observation)))
 	      location-source))))
 
-(defun paikkis-geocode (place-name)
-  (let ((place place-name)
-	(municipality nil))
+;; (defun paikkis-geocode (place-name)
+;;   (let ((place place-name)
+;; 	(municipality nil))
 
-    (when (some #'(lambda (x) (char-equal #\, x)) place-name)
-      (destructuring-bind (p m) (cl-ppcre:split "," place-name)
-	(setf place p)
-	(setf municipality m)))
+;;     (when (some #'(lambda (x) (char-equal #\, x)) place-name)
+;;       (destructuring-bind (p m) (cl-ppcre:split "," place-name)
+;; 	(setf place p)
+;; 	(setf municipality m)))
 
-    (let* ((url
-	   (if municipality
-	       (format nil "http://api.paikkis.fi/v1/pois.json?filter=~A&municipality=~A&resultcount=1"
-		       (drakma:url-encode (string-trim " " place) :utf-8)
-		       (drakma:url-encode (string-trim " " municipality) :utf-8))
-	       (format nil "http://api.paikkis.fi/v1/pois.json?filter=~A&resultcount=1"
-		       (drakma:url-encode (string-trim " " place) :utf-8))))
-	   (stream
-	    (flexi-streams:make-flexi-stream
-	     (drakma:http-request url :want-stream t)
-	     :external-format (flexi-streams:make-external-format :utf-8)))
-	   (alist (cl-json:decode-json stream)))
-      (values alist url))))
+;;     (let* ((parameters
+;; 	   (if municipality
+;; 	       (list (cons "filter" (string-trim " " place))
+;; 		     (cons "municipality" (string-trim " " municipality)))
+;; 	       (list (cons "filter" (string-trim " " place)))))
+;; 	   (stream
+;; 	    (flexi-streams:make-flexi-stream
+;; 	     (drakma:http-request "http://api.paikkis.fi/v1/pois.json" :want-stream t
+;; 				  :parameters (cons '("resultcount" . 1) parameters))
+;; 	     :external-format (flexi-streams:make-external-format :utf-8)))
+;; 	   (alist (cl-json:decode-json stream)))
+;;       (values alist parameters))))
 
 (defun nominatim-geocode (place-name)
   (let* ((url
@@ -350,7 +349,8 @@
 	(if bottom #'< #'>))
        (observations (fmi-observations:observations
 		      (fmi-observations:make-bbox-criterion 20 60 30 70)
-		      :time-step 1 :time-step-count 1))
+		      :time-step 5
+		      :start-time (local-time:timestamp- (local-time:now) 30 :minute)))
        (stations (make-hash-table :test 'equal))
        (latest-non-nil))
 		    
@@ -384,10 +384,11 @@
   (let
       ((observations (fmi-observations:observations
 		      (fmi-observations:make-bbox-criterion 20 60 30 70)
-		      :time-step 1 :time-step-count 1))
+		      :time-step 5
+		      :start-time (local-time:timestamp- (local-time:now) 30 :minute)))
        (stations (make-hash-table :test 'equal))
        (latest-non-nil))
-		    
+
     (iter (for item in observations)
 	  (push item
 		(gethash (format nil "~A-~A"
@@ -420,7 +421,9 @@
 (defun observations-fmi (place-name)
   (handler-case
       (values
-       (fmi-observations:observations (fmi-observations:make-place-name-criterion place-name))
+       (fmi-observations:observations (fmi-observations:make-place-name-criterion place-name)
+				      :time-step 30
+				      :start-time (local-time:timestamp- (local-time:now) 12 :hour))
        "FMI")
     (fmi-observations:no-stations-error ())))
 
@@ -439,14 +442,42 @@
 	  (let ((observations (fmi-observations:observations
 			       (fmi-observations:make-fmisid-criterion
 				(parse-integer
-				 (nearest-weather-station-id lat lon :second second))))))
+				 (nearest-weather-station-id lat lon :second second)))
+			       :time-step 30
+			       :start-time (local-time:timestamp- (local-time:now) 12 :hour))))
 	    (values observations "OSM Nominatim"))
-	(fmi-observations:no-stations-error ())))))
+	(fmi-observations:no-stations-error () (error 'station-not-found-error))))))
+
+;; (defun observations-paikkis (place-name &key (second nil))
+;;   (let
+;;       ((place (first (paikkis-geocode place-name))))
+;;     (when (= (length place) 0)
+;;       (error 'station-not-found-error))
+
+;;     (let ((lat (cdr (assoc :lat place)))
+;; 	  (lon (cdr (assoc :lon place))))
+;;       (when (eq lat nil)
+;; 	(error 'station-not-found-error))
+
+;;       (handler-case
+;; 	  (let ((observations (fmi-observations:observations
+;; 			       (fmi-observations:make-fmisid-criterion
+;; 				(parse-integer
+;; 				 (nearest-weather-station-id lat lon :second second)))
+;; 			       :time-step 30
+;; 			       :start-time (local-time:timestamp- (local-time:now) 12 :hour))))
+;; 	    (values observations "Paikkis"))
+;; 	(fmi-observations:no-stations-error () (error 'station-not-found-error))))))
 
 (defun observations-biomine (place-name)
-  (when (string= (string-downcase place-name) "torstinpyhtää")
-    (return-from observations-biomine (values (observations-nominatim "Espoonlahti") "Biomine")))
-  (error 'station-not-found-error))
+  (let
+      ((resolved
+	(cond
+	  ((string= (string-downcase place-name) "bc") "Otaniemi")
+	  ((string= (string-downcase place-name) "torstinpyhtää") "Espoonlahti"))))
+    (when (not (null resolved))
+      (return-from observations-biomine (values (observations-nominatim resolved) "Biomine")))
+    (error 'station-not-found-error)))
 
 (defun observations-good-p (observations slot-accessor)
   (cond
@@ -464,6 +495,7 @@
 		  #'observations-fmi
 		  #'observations-nominatim
 		  #'(lambda (place-name) (observations-nominatim place-name :second t))))
+		  ;; #'observations-paikkis))
     (handler-case
 	(multiple-value-bind
 	      (observations source)
@@ -521,6 +553,7 @@
 
       (flet
 	  ((handle-call (stimulus-function &optional args)
+	     (log-message "Stimulus function ~a called with arguments: ~a" stimulus-function args)
 	     (handler-case (if args
 			       (funcall stimulus-function args)
 			       (funcall stimulus-function nil))
@@ -571,10 +604,7 @@
   (group (:header "SWANK settings:")
 	 (switch :long-name "enable-swank"
 		 :description "Enable SWANK (for development)")
-	 (stropt :long-name "swank-port"))
-  (group (:header "FMI API settings:")
-	 (stropt :long-name "fmi-api-key"
-		 :description "API-key for FMI API (required)")))
+	 (stropt :long-name "swank-port")))
 
 (defun extract-station-location-to-fmisid-mapping ()
   (let ((all-station-observations
@@ -582,7 +612,9 @@
 	  #'(lambda (observation)
 	      (or (not (null (fmi-observations:temperature observation)))
 		  (not (null (fmi-observations:windspeed observation)))))
-	  (fmi-observations:observations (fmi-observations:make-bbox-criterion 20 58 30 70) :time-step-count 1))))
+	  (fmi-observations:observations (fmi-observations:make-bbox-criterion 20 58 30 70)
+					 :time-step 60
+					 :start-time (local-time:timestamp- (local-time:now) 1 :hour)))))
     (mapcar #'(lambda (observation)
 		(let ((station (fmi-observations:station observation)))
 		  (list
@@ -636,15 +668,6 @@
       (net.didierverna.clon:help)
       (net.didierverna.clon:exit))
 
-    (let ((api-key (net.didierverna.clon:getopt :long-name "fmi-api-key")))
-      (when (eq nil api-key)
-	(log-message "FMI API-key required!")
-	(net.didierverna.clon:help)
-	(net.didierverna.clon:exit))
-
-      (log-message "Using ~A as FMI API-key." api-key)
-      (setf fmi-observations:*api-key* api-key))
-
     (if (net.didierverna.clon:getopt :long-name "enable-swank")
 	(progn
 	  (log-message "Enabling SWANK...")
@@ -670,7 +693,7 @@
 	   (sleep 300)
 	   (incf uptime 300)))))
 
-(defun test-main (fmi-api-key)
+(defun test-main ()
   (let ((fmisid-mapping-thread (make-location-to-fmisid-mapping-thread)))
     (log-message "Running...")
     (let ((uptime 0))

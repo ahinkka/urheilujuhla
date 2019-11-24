@@ -7,9 +7,9 @@
 	       #:drakma
 	       #:parse-number
 
-	       #:object-system
 	       #:lift
 	       #:cl-irc
+	       #:cl-json
 
 	       #:net.didierverna.clon
 	       #:swank
